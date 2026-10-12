@@ -188,6 +188,15 @@ class MpmApp(App):
             self.launch_game_with_preset()
             return
         # fallback to existing
+        if bid == "gm_new":
+            self.gm_new()
+            return
+        if bid == "gm_del":
+            self.gm_del()
+            return
+        if bid == "gm_run":
+            self.gm_run()
+            return
         if bid == "refresh":
             self.load_and_fill()
         elif bid == "apply":
@@ -318,5 +327,32 @@ if __name__ == "__main__":
         import subprocess, os
         try:
             subprocess.Popen(['steam', f'steam://rungameid/{appid}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def gm_new(self):
+        def on_name(n):
+            if not n:
+                return
+            from src.gamemode import GMProfile, save_profiles, load_profiles
+            ps = load_profiles()
+            ps.append(GMProfile(name=n, gamemode=True))
+            save_profiles(ps)
+            self.load_gm()
+        self.push_screen(NameInput(), on_name)
+
+    def gm_del(self):
+        pass
+
+    def gm_run(self):
+        pass
+
+    def load_gm(self):
+        try:
+            lv = self.query_one("#gm_list", ListView)
+            lv.clear()
+            from src.gamemode import load_profiles
+            for p in load_profiles():
+                lv.append(ListItem(Label(p.name)))
         except Exception:
             pass
