@@ -92,6 +92,10 @@ class MpmApp(App):
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
             yield Label("Game Mode Profiles", id="title_gamemode")
+            yield ListView(id="gm_list")
+            yield Button("New profile", id="gm_new")
+            yield Button("Delete profile", id="gm_del")
+            yield Button("Run with profile", id="gm_run")
         with Vertical(id="dashboard_view") as db:
             db.styles.display = "none"
             yield Label("Dashboard", id="title_dash")
