@@ -66,11 +66,19 @@ class MpmApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Tabs():
+            yield Tab("Monitoring", id="tab_monitor")
             yield Tab("Presets", id="tab_presets")
             yield Tab("Games", id="tab_games")
             yield Tab("Game Mode", id="tab_gamemode")
             yield Tab("Dashboard", id="tab_dashboard")
-        with Horizontal(id="presets_view"):
+        with Vertical(id="monitor_view"):
+            yield Label("Real-time Monitor", id="title_monitor")
+            yield Label("CPU: --%", id="stat_cpu")
+            yield Label("RAM: --/-- GB (--%)", id="stat_ram")
+            yield Label("Swap: --%", id="stat_swap")
+            yield Label("Temp: --°C", id="stat_temp")
+        with Horizontal(id="presets_view") as pv:
+            pv.styles.display = "none"
             with Vertical(id="sidebar"):
                 yield Label("Presets", id="title")
                 yield Input(placeholder="Filter...", id="filter")
@@ -267,7 +275,8 @@ if __name__ == "__main__":
     @on(Tabs.TabActivated)
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         tid = event.tab.id
-        self.query_one("#presets_view").styles.display = "none" if tid != "tab_presets" else "block"
+        self.query_one("#monitor_view").styles.display = "block" if tid == "tab_monitor" else "none"
+        self.query_one("#presets_view").styles.display = "block" if tid == "tab_presets" else "none"
         self.query_one("#games_view").styles.display = "block" if tid == "tab_games" else "none"
         self.query_one("#gamemode_view").styles.display = "block" if tid == "tab_gamemode" else "none"
         self.query_one("#dashboard_view").styles.display = "block" if tid == "tab_dashboard" else "none"
