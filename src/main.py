@@ -91,7 +91,9 @@ class MpmApp(App):
             yield Label("Game Mode Profiles (WIP)", id="title")
         with Vertical(id="dashboard_view") as db:
             db.styles.display = "none"
-            yield Label("Dashboard (WIP)", id="title")
+            yield Label("Dashboard", id="title")
+            yield Label("Active MangoHud.conf:", id="title")
+            yield TextArea.code_editor(language="ini", read_only=True, id="active_conf")
         yield Footer()
 
     def on_mount(self) -> None:
