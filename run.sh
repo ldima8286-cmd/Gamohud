@@ -1,4 +1,5 @@
 #!/bin/bash
-cd "$(dirname "$0")"
-source .venv/bin/activate
-python src/main.py
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$SCRIPT_DIR/.venv/lib/python3.13/site-packages:$PYTHONPATH"
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+exec "$VENV_PY" "$SCRIPT_DIR/src/main.py"
