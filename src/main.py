@@ -1,3 +1,4 @@
+import re
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, ListView, ListItem, Label, TextArea, Button, Input, Static, Tabs, Tab
 from textual.containers import Horizontal, Vertical, Grid
@@ -172,8 +173,17 @@ class MpmApp(App):
                     self.show_preset(f)
                     break
 
+
+    # handle games buttons
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
+        if bid == "bind_preset":
+            self.bind_preset_to_game()
+            return
+        if bid == "launch_game":
+            self.launch_game_with_preset()
+            return
+        # fallback to existing
         if bid == "refresh":
             self.load_and_fill()
         elif bid == "apply":
@@ -184,6 +194,7 @@ class MpmApp(App):
             self.new_from_current()
         elif bid == "rename":
             self.rename_preset()
+
 
     def apply_preset(self):
         if not self.current_preset:
@@ -255,3 +266,53 @@ if __name__ == "__main__":
         lv.clear()
         for g in find_steam_games():
             lv.append(ListItem(Label(f"{g.name} [{g.launcher}] {g.appid}")))
+
+    def _get_selected_game(self):
+        lv = self.query_one("#games_list", ListView)
+        if not lv.index is None and lv.children:
+            item = lv.children[lv.index]
+            label = item.query_one(Label)
+            return str(label.renderable) if hasattr(label, 'renderable') else ""
+
+    def bind_preset_to_game(self):
+        sel = self._get_selected_game()
+        if not sel:
+            return
+        # extract appid
+        m = re.search(r'(\d+)$', sel)
+        appid = m.group(1) if m else sel
+        # get current preset
+        if self.current_preset:
+            binds = load_bindings()
+            # replace
+            binds = [b for b in binds if not (b.game_key == appid)]
+            from src.game_bindings import Binding
+            binds.append(Binding(game_key=appid, launcher='steam', preset=self.current_preset.name))
+            save_bindings(binds)
+
+    def launch_game_with_preset(self):
+        sel = self._get_selected_game()
+        if not sel:
+            return
+        m = re.search(r'(\d+)$', sel)
+        appid = m.group(1) if m else sel
+        b = get_binding(appid)
+        if b and b.preset:
+            # apply preset
+            p = MANGOHUD_DIRS[0] / b.preset
+            if not p.exists():
+                for _, f in self.load_presets():
+                    if f.name == b.preset:
+                        p = f
+                        break
+            try:
+                target = MANGOHUD_DIRS[0] / "MangoHud.conf"
+                target.write_text(p.read_text(encoding='utf-8', errors='replace'), encoding='utf-8')
+            except Exception:
+                pass
+        # try to launch steam game
+        import subprocess, os
+        try:
+            subprocess.Popen(['steam', f'steam://rungameid/{appid}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
