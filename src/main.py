@@ -1,5 +1,5 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, ListView, ListItem, Label, TextArea, Button, Input, Static
+from textual.widgets import Header, Footer, ListView, ListItem, Label, TextArea, Button, Input, Static, Tabs, Tab
 from textual.containers import Horizontal, Vertical, Grid
 from textual.screen import ModalScreen
 from pathlib import Path
@@ -60,7 +60,12 @@ class MpmApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Horizontal():
+        with Tabs():
+            yield Tab("Presets", id="tab_presets")
+            yield Tab("Games", id="tab_games")
+            yield Tab("Game Mode", id="tab_gamemode")
+            yield Tab("Dashboard", id="tab_dashboard")
+        with Horizontal(id="presets_view"):
             with Vertical(id="sidebar"):
                 yield Label("Presets", id="title")
                 yield Input(placeholder="Filter...", id="filter")
@@ -73,6 +78,16 @@ class MpmApp(App):
             with Vertical(id="content"):
                 yield Label("Preview / Editor", id="title")
                 yield TextArea.code_editor(language="ini", id="editor")
+        with Vertical(id="games_view") as gv:
+            gv.styles.display = "none"
+            yield Label("Games (WIP)", id="title")
+            yield ListView(id="games_list")
+        with Vertical(id="gamemode_view") as gm:
+            gm.styles.display = "none"
+            yield Label("Game Mode Profiles (WIP)", id="title")
+        with Vertical(id="dashboard_view") as db:
+            db.styles.display = "none"
+            yield Label("Dashboard (WIP)", id="title")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -216,3 +231,11 @@ class MpmApp(App):
 
 if __name__ == "__main__":
     MpmApp().run()
+
+    @on(Tabs.TabActivated)
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
+        tid = event.tab.id
+        self.query_one("#presets_view").styles.display = "none" if tid != "tab_presets" else "block"
+        self.query_one("#games_view").styles.display = "block" if tid == "tab_games" else "none"
+        self.query_one("#gamemode_view").styles.display = "block" if tid == "tab_gamemode" else "none"
+        self.query_one("#dashboard_view").styles.display = "block" if tid == "tab_dashboard" else "none"
