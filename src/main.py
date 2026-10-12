@@ -209,8 +209,7 @@ class MpmApp(App):
             return
         if bid == "refresh":
             self.load_and_fill()
-        self.set_interval(1.0, self.update_monitor)
-        self.update_monitor()
+            return
         elif bid == "apply":
             self.apply_preset()
         elif bid == "delete":
@@ -239,8 +238,6 @@ class MpmApp(App):
             if self.current_preset.exists():
                 self.current_preset.unlink()
             self.load_and_fill()
-        self.set_interval(1.0, self.update_monitor)
-        self.update_monitor()
         except Exception:
             pass
 
@@ -257,8 +254,6 @@ class MpmApp(App):
             except Exception:
                 p.write_text("", encoding="utf-8")
             self.load_and_fill()
-        self.set_interval(1.0, self.update_monitor)
-        self.update_monitor()
         self.push_screen(NameInput(), on_name)
 
     def rename_preset(self):
@@ -272,8 +267,6 @@ class MpmApp(App):
                 self.current_preset.rename(newp)
                 self.current_preset = newp
                 self.load_and_fill()
-        self.set_interval(1.0, self.update_monitor)
-        self.update_monitor()
             except Exception:
                 pass
         self.push_screen(NameInput(), on_name)
