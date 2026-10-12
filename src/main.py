@@ -86,6 +86,8 @@ class MpmApp(App):
             gv.styles.display = "none"
             yield Label("Games (WIP)", id="title")
             yield ListView(id="games_list")
+            yield Button("Bind preset to selected", id="bind_preset")
+            yield Button("Launch with preset", id="launch_game")
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
             yield Label("Game Mode Profiles", id="title_gamemode")
