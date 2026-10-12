@@ -1,20 +1,10 @@
-# mangohud-preset-manager (TUI)
+# mangohud-gamemode
 
-Мини-TUI для управления пресетами MangoHud. Показывает список .conf из ~/.config/MangoHud/, предпросмотр выбранного пресета, позволяет быстро ориентироваться.
+TUI для управления MangoHud + Game Mode профилями.
 
-## Запуск
-
-```bash
-cd mangohud-preset-manager-tui
-source .venv/bin/activate  # если есть
-python src/main.py
-```
-
-## Зависимости
-
-- textual
-- pyyaml
-
-## Цель
-
-Как обсуждали: надстройка над MangoHud. MVP: список пресетов, превью, (потом) Apply/Save/Rename/Delete.
+Фишки:
+- Пресеты MangoHud (.conf) — просмотр, редактирование, применение
+- Привязка пресета к игре (Steam)
+- Автоприменение пресета при запуске игры
+- Game Mode профили (gamemode, действия)
+- Dashboard активного конфига
