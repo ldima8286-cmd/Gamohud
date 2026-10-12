@@ -1,7 +1,7 @@
 [project]
-name = "mangohud-preset-manager-tui"
+name = "mangohud-gamemode"
 version = "0.1.0"
-description = "TUI for MangoHud presets"
+description = "TUI for MangoHud presets and Game Mode profiles"
 requires-python = ">=3.10"
 dependencies = [
     "textual>=5.0.1",
