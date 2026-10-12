@@ -113,6 +113,8 @@ class MpmApp(App):
 
     def on_mount(self) -> None:
         self.load_and_fill()
+        self.set_interval(1.0, self.update_monitor)
+        self.update_monitor()
 
     def all_preset_dirs(self):
         dirs = []
@@ -207,6 +209,8 @@ class MpmApp(App):
             return
         if bid == "refresh":
             self.load_and_fill()
+        self.set_interval(1.0, self.update_monitor)
+        self.update_monitor()
         elif bid == "apply":
             self.apply_preset()
         elif bid == "delete":
@@ -235,6 +239,8 @@ class MpmApp(App):
             if self.current_preset.exists():
                 self.current_preset.unlink()
             self.load_and_fill()
+        self.set_interval(1.0, self.update_monitor)
+        self.update_monitor()
         except Exception:
             pass
 
@@ -251,6 +257,8 @@ class MpmApp(App):
             except Exception:
                 p.write_text("", encoding="utf-8")
             self.load_and_fill()
+        self.set_interval(1.0, self.update_monitor)
+        self.update_monitor()
         self.push_screen(NameInput(), on_name)
 
     def rename_preset(self):
@@ -264,6 +272,8 @@ class MpmApp(App):
                 self.current_preset.rename(newp)
                 self.current_preset = newp
                 self.load_and_fill()
+        self.set_interval(1.0, self.update_monitor)
+        self.update_monitor()
             except Exception:
                 pass
         self.push_screen(NameInput(), on_name)
@@ -363,5 +373,16 @@ if __name__ == "__main__":
             from src.gamemode import load_profiles
             for p in load_profiles():
                 lv.append(ListItem(Label(p.name)))
+        except Exception:
+            pass
+
+    def update_monitor(self):
+        try:
+            from src.monitor import get_stats
+            st = get_stats()
+            self.query_one("#stat_cpu").update(f"CPU: {st["cpu"]}%")
+            self.query_one("#stat_ram").update(f"RAM: {st["ram_used"]}/{st["ram_total"]} GB ({st["ram_percent"]}%)")
+            self.query_one("#stat_swap").update(f"Swap: {st["swap_percent"]}%")
+            self.query_one("#stat_temp").update(f"Temp: {st["temp"]}°C" if st["temp"] is not None else "Temp: N/A")
         except Exception:
             pass
