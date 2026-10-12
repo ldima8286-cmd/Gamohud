@@ -6,7 +6,7 @@
 - [x] Apply: копировать выбранный пресет в MangoHud.conf (редактор -> применяет текущее)
 - [x] Save current: New from current (из текущего редактора)
 - [x] Rename/Delete
-- [ ] Фильтр по имени
+- [x] Фильтр по имени
 - [x] Поддержка Flatpak путей (~/.var/app/*/config/MangoHud/)
 
 ## UI
