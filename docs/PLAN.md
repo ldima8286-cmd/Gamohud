@@ -20,8 +20,8 @@
 - [ ] Автовосстановление MangoHud.conf после выхода
 
 ## 3. Game Mode с профилями
-- [ ] Профили Game Mode (actions): gamemode, kill/restore процессы, env vars
-- [ ] Привязка Game Mode профиля + пресета к игре
+- [x] Профили Game Mode (базовые: хранение)
+- [x] Привязка через bindings (preset + gamemode_profile)
 - [ ] Один клик: применить пресет + запустить Game Mode + игра
 - [ ] Триггер по запуску/завершению
 
