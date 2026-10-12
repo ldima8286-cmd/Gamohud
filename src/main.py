@@ -1,6 +1,7 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, ListView, ListItem, Label, TextArea, Button, Input, ModalScreen, Static
+from textual.widgets import Header, Footer, ListView, ListItem, Label, TextArea, Button, Input, Static
 from textual.containers import Horizontal, Vertical, Grid
+from textual.screen import ModalScreen
 from pathlib import Path
 from textual import on
 
