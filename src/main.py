@@ -4,6 +4,10 @@ from textual.containers import Horizontal, Vertical, Grid
 from textual.screen import ModalScreen
 from pathlib import Path
 from textual import on
+try:
+    from src.games import find_steam_games
+except Exception:
+    def find_steam_games(): return []
 
 MANGOHUD_DIRS = [
     Path.home() / ".config" / "MangoHud",
@@ -239,3 +243,11 @@ if __name__ == "__main__":
         self.query_one("#games_view").styles.display = "block" if tid == "tab_games" else "none"
         self.query_one("#gamemode_view").styles.display = "block" if tid == "tab_gamemode" else "none"
         self.query_one("#dashboard_view").styles.display = "block" if tid == "tab_dashboard" else "none"
+        if tid == "tab_games":
+            self.load_games()
+
+    def load_games(self):
+        lv = self.query_one("#games_list", ListView)
+        lv.clear()
+        for g in find_steam_games():
+            lv.append(ListItem(Label(f"{g.name} [{g.launcher}] {g.appid}")))
