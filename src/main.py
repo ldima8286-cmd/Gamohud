@@ -88,11 +88,11 @@ class MpmApp(App):
             yield ListView(id="games_list")
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
-            yield Label("Game Mode Profiles (WIP)", id="title")
+            yield Label("Game Mode Profiles", id="title_gamemode")
         with Vertical(id="dashboard_view") as db:
             db.styles.display = "none"
-            yield Label("Dashboard", id="title")
-            yield Label("Active MangoHud.conf:", id="title")
+            yield Label("Dashboard", id="title_dash")
+            yield Label("Active MangoHud.conf:", id="title_active")
             yield TextArea.code_editor(language="ini", read_only=True, id="active_conf")
         yield Footer()
 
