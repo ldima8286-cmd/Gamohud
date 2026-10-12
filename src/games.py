@@ -1,42 +1,55 @@
 import json
+import re
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 @dataclass
 class Game:
     name: str
-    launcher: str  # steam/lutris/heroic/bottles/manual
+    launcher: str
     exec: str = ""
     appid: str = ""
-    preset: str = ""  # preset filename
+    preset: str = ""
     gamemode_profile: str = ""
 
 
 def find_steam_games():
     games = []
-    # common paths
-    paths = []
-    paths.append(Path.home() / ".steam" / "steam" / "appcache" / "librarycache")
-    paths.append(Path.home() / ".local" / "share" / "Steam" / "appcache" / "librarycache")
-    for p in paths:
-        if not p.exists():
-            continue
-        for f in p.glob("*.json"):
+    # libraryfolders.vdf locations
+    vdf_paths = []
+    vdf_paths.append(Path.home() / ".steam" / "steam" / "config" / "libraryfolders.vdf")
+    vdf_paths.append(Path.home() / ".steam" / "config" / "libraryfolders.vdf")
+    vdf_paths.append(Path.home() / ".local" / "share" / "Steam" / "config" / "libraryfolders.vdf")
+    # scan all vdf
+    for v in vdf_paths:
+        if v.exists():
             try:
-                data = json.loads(f.read_text())
-                name = data.get("name") or f.stem
-                appid = data.get("appid") or data.get("appID") or ""
-                games.append(Game(name=name, launcher="steam", appid=str(appid)))
+                text = v.read_text(encoding='utf-8', errors='replace')
+                # find paths
+                for m in re.finditer(r'"path"\s+"([^"]+)"', text):
+                    base = Path(m.group(1)).expanduser()
+                    steamapps = base / "steamapps"
+                    if not steamapps.exists():
+                        continue
+                    for af in steamapps.glob("appmanifest_*.acf"):
+                        try:
+                            t = af.read_text(encoding='utf-8', errors='replace')
+                            name = re.search(r'"name"\s+"([^"]+)"', t)
+                            appid = re.search(r'"appid"\s+"([^"]+)"', t)
+                            if name:
+                                games.append(Game(name=name.group(1), launcher='steam', appid=appid.group(1) if appid else af.stem.split('_')[-1], exec=""))
+                        except Exception:
+                            pass
             except Exception:
                 pass
-    return games
-
-
-def find_lutris_games():
-    games = []
-    dbs = [
-        Path.home() / ".local" / "share" / "lutris" / "pga.db",
-        Path.home() / "Games" / "lutris" / "pga.db",
-    ]
-    # simple parse not needed now; return empty if not import sqlite3? skip heavy
-    return games
+    # dedupe by appid
+    seen = set()
+    res = []
+    for g in games:
+        if g.appid and g.appid in seen:
+            continue
+        if g.appid:
+            seen.add(g.appid)
+        res.append(g)
+    res.sort(key=lambda x: x.name.lower())
+    return res
