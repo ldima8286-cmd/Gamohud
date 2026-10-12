@@ -1,0 +1,9 @@
+[project]
+name = "mangohud-preset-manager-tui"
+version = "0.1.0"
+description = "TUI for MangoHud presets"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=5.0.1",
+    "pyyaml>=6.0.2",
+]
