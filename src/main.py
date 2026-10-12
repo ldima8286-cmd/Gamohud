@@ -63,6 +63,7 @@ class MpmApp(App):
         with Horizontal():
             with Vertical(id="sidebar"):
                 yield Label("Presets", id="title")
+                yield Input(placeholder="Filter...", id="filter")
                 yield ListView(id="presets")
                 yield Button("Refresh", id="refresh")
                 yield Button("New from current", id="new_from_current")
@@ -105,16 +106,12 @@ class MpmApp(App):
         return presets
 
     def load_and_fill(self):
+        self.apply_filter()
         lv = self.query_one("#presets", ListView)
-        lv.clear()
-        self.current_preset = None
-        for d, f in self.load_presets():
-            lv.append(ListItem(Label(f"{f.name}")))
-        if self.load_presets():
-            _, first = self.load_presets()[0]
-            self.current_preset = first
-            self.show_preset(first)
-            lv.focus()
+        if lv.children:
+            lv.index = 0
+            # trigger selection logic
+
 
     def show_preset(self, path: Path):
         ta = self.query_one("#editor", TextArea)
@@ -122,6 +119,22 @@ class MpmApp(App):
             ta.load_text(path.read_text(encoding="utf-8", errors="replace"))
         except Exception as e:
             ta.load_text(f"# Error reading {path}: {e}")
+
+
+    def apply_filter(self):
+        filt = self.query_one("#filter", Input).value.lower().strip()
+        lv = self.query_one("#presets", ListView)
+        lv.clear()
+        for _, f in self.load_presets():
+            if not filt or filt in f.name.lower():
+                lv.append(ListItem(Label(f.name)))
+        if filt:
+            # select first if exists
+            pass
+
+    @on(Input.Changed, "#filter")
+    def on_filter_changed(self, event: Input.Changed) -> None:
+        self.apply_filter()
 
     @on(ListView.Selected)
     def on_list_view_selected(self, event: ListView.Selected) -> None:
