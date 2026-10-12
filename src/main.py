@@ -373,9 +373,9 @@ if __name__ == "__main__":
         try:
             from src.monitor import get_stats
             st = get_stats()
-            self.query_one("#stat_cpu").update(f"CPU: {st["cpu"]}%")
-            self.query_one("#stat_ram").update(f"RAM: {st["ram_used"]}/{st["ram_total"]} GB ({st["ram_percent"]}%)")
-            self.query_one("#stat_swap").update(f"Swap: {st["swap_percent"]}%")
-            self.query_one("#stat_temp").update(f"Temp: {st["temp"]}°C" if st["temp"] is not None else "Temp: N/A")
+            self.query_one("#stat_cpu").update(f"CPU: {st['cpu']}%")
+            self.query_one("#stat_ram").update(f"RAM: {st['ram_used']}/{st['ram_total']} GB ({st['ram_percent']}%)")
+            self.query_one("#stat_swap").update(f"Swap: {st['swap_percent']}%")
+            self.query_one("#stat_temp").update(f"Temp: {st['temp']}°C" if st['temp'] is not None else "Temp: N/A")
         except Exception:
             pass
