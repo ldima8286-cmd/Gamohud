@@ -272,6 +272,18 @@ class MpmApp(App):
         self.push_screen(NameInput(), on_name)
 
 
+    def update_monitor(self):
+        try:
+            from src.monitor import get_stats
+            st = get_stats()
+            self.query_one("#stat_cpu").update(f"CPU: {st['cpu']}%")
+            self.query_one("#stat_ram").update(f"RAM: {st['ram_used']}/{st['ram_total']} GB ({st['ram_percent']}%)")
+            self.query_one("#stat_swap").update(f"Swap: {st['swap_percent']}%")
+            self.query_one("#stat_temp").update(f"Temp: {st['temp']}°C" if st['temp'] is not None else "Temp: N/A")
+        except Exception:
+            pass
+
+
 if __name__ == "__main__":
     MpmApp().run()
 
@@ -369,13 +381,3 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    def update_monitor(self):
-        try:
-            from src.monitor import get_stats
-            st = get_stats()
-            self.query_one("#stat_cpu").update(f"CPU: {st['cpu']}%")
-            self.query_one("#stat_ram").update(f"RAM: {st['ram_used']}/{st['ram_total']} GB ({st['ram_percent']}%)")
-            self.query_one("#stat_swap").update(f"Swap: {st['swap_percent']}%")
-            self.query_one("#stat_temp").update(f"Temp: {st['temp']}°C" if st['temp'] is not None else "Temp: N/A")
-        except Exception:
-            pass
