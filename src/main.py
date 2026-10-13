@@ -132,6 +132,7 @@ class MpmApp(App):
             yield Button("Bind Game Mode profile", id="bind_gm")
             yield Button("Launch with preset", id="launch_game")
             yield Button("Launch with preset + Game Mode", id="launch_full")
+            yield Button("Restore MangoHud.conf", id="restore_conf")
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
             yield Label("Game Mode Profiles", id="title_gamemode")
@@ -238,6 +239,9 @@ class MpmApp(App):
             return
         if bid == "launch_full":
             self.launch_game_with_preset(use_gamemode=True)
+            return
+        if bid == "restore_conf":
+            self.restore_conf_now()
             return
         # fallback to existing
         if bid == "gm_new":
@@ -439,6 +443,8 @@ class MpmApp(App):
             preset_name = b.preset or ""
             gm_name = b.gamemode_profile or ""
         if preset_name:
+            from src.restore import backup_conf
+            backup_conf()
             self.apply_preset_by_name(preset_name)
 
         import subprocess, os
@@ -461,6 +467,31 @@ class MpmApp(App):
 
         try:
             subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            return
+
+        if preset_name:
+            from src.restore import watch_and_restore
+            watch_and_restore(appid, on_restore=self._on_restored)
+
+    def _on_restored(self, ok):
+        if ok:
+            try:
+                self.notify("MangoHud.conf restored")
+            except Exception:
+                pass
+
+    def restore_conf_now(self):
+        from src.restore import restore_conf, has_backup
+        if not has_backup():
+            try:
+                self.notify("No backup to restore")
+            except Exception:
+                pass
+            return
+        ok = restore_conf()
+        try:
+            self.notify("MangoHud.conf restored" if ok else "Restore failed")
         except Exception:
             pass
 
