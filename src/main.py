@@ -391,6 +391,8 @@ class MpmApp(App):
         self.query_one("#dashboard_view").styles.display = "block" if tid == "tab_dashboard" else "none"
         if tid == "tab_games":
             self.load_games()
+        if tid == "tab_dashboard":
+            self.load_dashboard()
 
     def load_games(self):
         lv = self.query_one("#games_list", ListView)
@@ -398,6 +400,14 @@ class MpmApp(App):
         for g in all_games():
             appid = g.appid or g.exec or g.name
             lv.append(ListItem(Label(f"{g.name} [{g.launcher}] {appid}")))
+
+    def load_dashboard(self):
+        try:
+            from src.dashboard import read_active
+            ta = self.query_one("#active_conf", TextArea)
+            ta.load_text(read_active())
+        except Exception:
+            pass
 
     def _get_selected_game(self):
         lv = self.query_one("#games_list", ListView)
