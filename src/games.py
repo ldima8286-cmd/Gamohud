@@ -163,4 +163,34 @@ def all_games():
     g.extend(find_lutris_games())
     g.extend(find_bottles_games())
     g.extend(find_heroic_games())
+    g.extend(find_manual_games())
     return g
+
+
+MANUAL_FILE = Path.home() / ".config" / "mangohud-preset-manager" / "manual_games.json"
+
+
+def load_manual_games():
+    if MANUAL_FILE.exists():
+        try:
+            data = json.loads(MANUAL_FILE.read_text(encoding='utf-8', errors='replace'))
+            res = []
+            for d in data:
+                res.append(Game(**d))
+            return res
+        except Exception:
+            pass
+    return []
+
+
+def save_manual_game(name, exe, appid=""):
+    games = load_manual_games()
+    key = (name.lower(), exe)
+    games = [g for g in games if (g.name.lower(), g.exec) != key]
+    games.append(Game(name=str(name), launcher='manual', exec=str(exe), appid=str(appid) if appid else str(exe)))
+    MANUAL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MANUAL_FILE.write_text(json.dumps([asdict(g) for g in games], indent=2))
+
+
+def find_manual_games():
+    return load_manual_games()
