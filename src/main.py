@@ -306,10 +306,22 @@ if __name__ == "__main__":
 
     def _get_selected_game(self):
         lv = self.query_one("#games_list", ListView)
-        if not lv.index is None and lv.children:
+        if lv.index is not None and lv.children:
             item = lv.children[lv.index]
             label = item.query_one(Label)
             return str(label.renderable) if hasattr(label, 'renderable') else ""
+
+
+    def _get_selected_gm(self):
+        try:
+            lv = self.query_one("#gm_list", ListView)
+            if lv.index is not None and 0 <= lv.index < len(lv.children):
+                item = lv.children[lv.index]
+                label = item.query_one(Label)
+                return str(label.renderable) if hasattr(label, 'renderable') else ""
+        except Exception:
+            pass
+        return ""
 
     def bind_preset_to_game(self):
         sel = self._get_selected_game()
@@ -366,10 +378,32 @@ if __name__ == "__main__":
         self.push_screen(NameInput(), on_name)
 
     def gm_del(self):
-        pass
+        sel = self._get_selected_gm()
+        if not sel:
+            return
+        try:
+            from src.gamemode import load_profiles, save_profiles
+            ps = [p for p in load_profiles() if p.name != sel]
+            save_profiles(ps)
+            self.load_gm()
+        except Exception:
+            pass
 
     def gm_run(self):
-        pass
+        sel = self._get_selected_gm()
+        if not sel:
+            return
+        try:
+            from src.gamemode import load_profiles, run_profile, GMProfile
+            ps = {p.name: p for p in load_profiles()}
+            p = ps.get(sel)
+            if not p:
+                return
+            # run an empty no-op command but with gamemode env/kill/restore? or just run shell with gamemode
+            import subprocess
+            run_profile(p, "echo 'gamemode profile run'", wait=False)
+        except Exception:
+            pass
 
     def load_gm(self):
         try:
