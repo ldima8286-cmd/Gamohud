@@ -6,9 +6,9 @@ from textual.screen import ModalScreen
 from pathlib import Path
 from textual import on
 try:
-    from src.games import find_steam_games
+    from src.games import all_games
 except Exception:
-    def find_steam_games(): return []
+    def all_games(): return []
 
 MANGOHUD_DIRS = [
     Path.home() / ".config" / "MangoHud",
@@ -343,8 +343,9 @@ class MpmApp(App):
     def load_games(self):
         lv = self.query_one("#games_list", ListView)
         lv.clear()
-        for g in find_steam_games():
-            lv.append(ListItem(Label(f"{g.name} [{g.launcher}] {g.appid}")))
+        for g in all_games():
+            appid = g.appid or g.exec or g.name
+            lv.append(ListItem(Label(f"{g.name} [{g.launcher}] {appid}")))
 
     def _get_selected_game(self):
         lv = self.query_one("#games_list", ListView)
