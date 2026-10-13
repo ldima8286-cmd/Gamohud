@@ -41,6 +41,39 @@ class NameInput(ModalScreen[str]):
         self.dismiss(name if name else "")
 
 
+class ProfileSelect(ModalScreen[str]):
+    def __init__(self, options):
+        super().__init__()
+        self.options = options
+
+    def compose(self) -> ComposeResult:
+        with Grid():
+            yield Static("Game Mode profile", id="question")
+            yield ListView(id="profile_list")
+            yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        try:
+            lv = self.query_one("#profile_list", ListView)
+            for o in self.options:
+                lv.append(ListItem(Label(o)))
+            lv.focus()
+        except Exception:
+            pass
+
+    @on(ListView.Selected)
+    def on_selected(self, event: ListView.Selected) -> None:
+        if not event.item:
+            return
+        label = event.item.query_one(Label)
+        name = str(label.renderable) if hasattr(label, "renderable") else ""
+        self.dismiss(name)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss("")
+
+
 class MpmApp(App):
     CSS = """
     #sidebar {
@@ -96,7 +129,9 @@ class MpmApp(App):
             yield Label("Games (WIP)", id="title")
             yield ListView(id="games_list")
             yield Button("Bind preset to selected", id="bind_preset")
+            yield Button("Bind Game Mode profile", id="bind_gm")
             yield Button("Launch with preset", id="launch_game")
+            yield Button("Launch with preset + Game Mode", id="launch_full")
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
             yield Label("Game Mode Profiles", id="title_gamemode")
@@ -113,6 +148,7 @@ class MpmApp(App):
 
     def on_mount(self) -> None:
         self.load_and_fill()
+        self.load_gm()
         self.set_interval(1.0, self.update_monitor)
         self.update_monitor()
 
@@ -194,8 +230,14 @@ class MpmApp(App):
         if bid == "bind_preset":
             self.bind_preset_to_game()
             return
+        if bid == "bind_gm":
+            self.bind_gm_to_game()
+            return
         if bid == "launch_game":
             self.launch_game_with_preset()
+            return
+        if bid == "launch_full":
+            self.launch_game_with_preset(use_gamemode=True)
             return
         # fallback to existing
         if bid == "gm_new":
@@ -283,10 +325,6 @@ class MpmApp(App):
         except Exception:
             pass
 
-
-if __name__ == "__main__":
-    MpmApp().run()
-
     @on(Tabs.TabActivated)
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
         tid = event.tab.id
@@ -327,42 +365,102 @@ if __name__ == "__main__":
         sel = self._get_selected_game()
         if not sel:
             return
-        # extract appid
         m = re.search(r'(\d+)$', sel)
         appid = m.group(1) if m else sel
-        # get current preset
         if self.current_preset:
             binds = load_bindings()
-            # replace
+            old = next((b for b in binds if b.game_key == appid), None)
             binds = [b for b in binds if not (b.game_key == appid)]
-            from src.game_bindings import Binding
-            binds.append(Binding(game_key=appid, launcher='steam', preset=self.current_preset.name))
+            binds.append(Binding(
+                game_key=appid,
+                launcher='steam',
+                preset=self.current_preset.name,
+                gamemode_profile=old.gamemode_profile if old else "",
+            ))
             save_bindings(binds)
 
-    def launch_game_with_preset(self):
+    def bind_gm_to_game(self):
+        sel = self._get_selected_game()
+        if not sel:
+            return
+        m = re.search(r'(\d+)$', sel)
+        appid = m.group(1) if m else sel
+        try:
+            from src.gamemode import load_profiles
+            names = [p.name for p in load_profiles()]
+        except Exception:
+            names = []
+        options = ["(none)"] + names
+
+        def on_pick(name):
+            if not name:
+                return
+            profile = "" if name == "(none)" else name
+            binds = load_bindings()
+            old = next((b for b in binds if b.game_key == appid), None)
+            binds = [b for b in binds if not (b.game_key == appid)]
+            binds.append(Binding(
+                game_key=appid,
+                launcher='steam',
+                preset=old.preset if old else "",
+                gamemode_profile=profile,
+            ))
+            save_bindings(binds)
+
+        self.push_screen(ProfileSelect(options), on_pick)
+
+    def apply_preset_by_name(self, name):
+        p = MANGOHUD_DIRS[0] / name
+        if not p.exists():
+            for _, f in self.load_presets():
+                if f.name == name:
+                    p = f
+                    break
+        if not p.exists():
+            return False
+        try:
+            target = MANGOHUD_DIRS[0] / "MangoHud.conf"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(p.read_text(encoding='utf-8', errors='replace'), encoding='utf-8')
+            return True
+        except Exception:
+            return False
+
+    def launch_game_with_preset(self, use_gamemode=False):
         sel = self._get_selected_game()
         if not sel:
             return
         m = re.search(r'(\d+)$', sel)
         appid = m.group(1) if m else sel
         b = get_binding(appid)
-        if b and b.preset:
-            # apply preset
-            p = MANGOHUD_DIRS[0] / b.preset
-            if not p.exists():
-                for _, f in self.load_presets():
-                    if f.name == b.preset:
-                        p = f
-                        break
+        preset_name = ""
+        gm_name = ""
+        if b:
+            preset_name = b.preset or ""
+            gm_name = b.gamemode_profile or ""
+        if preset_name:
+            self.apply_preset_by_name(preset_name)
+
+        import subprocess, os
+        cmd = ['steam', f'steam://rungameid/{appid}']
+        env = dict(os.environ)
+
+        profile = None
+        if use_gamemode and gm_name:
             try:
-                target = MANGOHUD_DIRS[0] / "MangoHud.conf"
-                target.write_text(p.read_text(encoding='utf-8', errors='replace'), encoding='utf-8')
+                from src.gamemode import load_profiles, build_env, run_kill, find_gamemoderun
+                profile = next((p for p in load_profiles() if p.name == gm_name), None)
+                if profile:
+                    env = build_env(profile, env)
+                    run_kill(profile)
+                    gm = find_gamemoderun()
+                    if gm and profile.gamemode:
+                        cmd = [gm] + cmd
             except Exception:
                 pass
-        # try to launch steam game
-        import subprocess, os
+
         try:
-            subprocess.Popen(['steam', f'steam://rungameid/{appid}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 
@@ -415,3 +513,6 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+
+if __name__ == "__main__":
+    MpmApp().run()
