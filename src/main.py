@@ -274,6 +274,9 @@ class MpmApp(App):
         if bid == "add_manual":
             self.add_manual_game()
             return
+        if bid == "restore_conf":
+            self.restore_conf_now()
+            return
         # fallback to existing
         if bid == "gm_new":
             self.gm_new()
@@ -396,31 +399,46 @@ class MpmApp(App):
         except Exception:
             pass
         return ""
-
-    def bind_preset_to_game(self):
+    def _parse_selected_game(self):
         sel = self._get_selected_game()
         if not sel:
+            return None, None, None, None  # name, launcher, appid/exe
+        # format: "Name [launcher] key"
+        m = re.match(r"^(.+?)\s+\[(\w+)\]\s+(.*)$", sel)
+        if m:
+            return m.group(1), m.group(2), m.group(3), m.group(3)
+        # fallback
+        m2 = re.search(r"(steam|lutris|bottles|heroic|manual)", sel, re.I)
+        if m2:
+            launcher = m2.group(1).lower()
+            rest = sel.replace(f"[{m2.group(1)}]", "").strip()
+            return rest.split()[-1] if ' ' in rest else rest, launcher, rest, rest
+        return sel, "unknown", sel, sel
+
+
+    def bind_preset_to_game(self):
+        _, launcher, key, _ = self._parse_selected_game()
+        if not launcher:
             return
-        m = re.search(r'(\d+)$', sel)
-        appid = m.group(1) if m else sel
+        appid_or_key = key
         if self.current_preset:
             binds = load_bindings()
-            old = next((b for b in binds if b.game_key == appid), None)
-            binds = [b for b in binds if not (b.game_key == appid)]
+            old = next((b for b in binds if b.game_key == appid_or_key and b.launcher == launcher), None)
+            binds = [b for b in binds if not (b.game_key == appid_or_key and b.launcher == launcher)]
+            from src.game_bindings import Binding
             binds.append(Binding(
-                game_key=appid,
-                launcher='steam',
+                game_key=appid_or_key,
+                launcher=launcher,
                 preset=self.current_preset.name,
                 gamemode_profile=old.gamemode_profile if old else "",
             ))
             save_bindings(binds)
 
     def bind_gm_to_game(self):
-        sel = self._get_selected_game()
-        if not sel:
+        _, launcher, key, _ = self._parse_selected_game()
+        if not launcher:
             return
-        m = re.search(r'(\d+)$', sel)
-        appid = m.group(1) if m else sel
+        appid_or_key = key
         try:
             from src.gamemode import load_profiles
             names = [p.name for p in load_profiles()]
@@ -433,11 +451,11 @@ class MpmApp(App):
                 return
             profile = "" if name == "(none)" else name
             binds = load_bindings()
-            old = next((b for b in binds if b.game_key == appid), None)
-            binds = [b for b in binds if not (b.game_key == appid)]
+            old = next((b for b in binds if b.game_key == appid_or_key and b.launcher == launcher), None)
+            binds = [b for b in binds if not (b.game_key == appid_or_key and b.launcher == launcher)]
             binds.append(Binding(
-                game_key=appid,
-                launcher='steam',
+                game_key=appid_or_key,
+                launcher=launcher,
                 preset=old.preset if old else "",
                 gamemode_profile=profile,
             ))
@@ -513,7 +531,19 @@ class MpmApp(App):
             except Exception:
                 pass
 
-    def add_manual_game(self):
+    def restore_conf_now(self):
+        from src.restore import restore_conf, has_backup
+        if not has_backup():
+            try:
+                self.notify("No backup to restore")
+            except Exception:
+                pass
+            return
+        ok = restore_conf()
+        try:
+            self.notify("MangoHud.conf restored" if ok else "Restore failed")
+        except Exception:
+            pass
         def on_dismiss(res):
             if not res:
                 return
@@ -540,6 +570,22 @@ class MpmApp(App):
             self.notify("MangoHud.conf restored" if ok else "Restore failed")
         except Exception:
             pass
+
+    def add_manual_game(self):
+        def on_dismiss(res):
+            if not res:
+                return
+            name = res.get("name") or ""
+            exe = res.get("exe") or ""
+            if not name or not exe:
+                return
+            try:
+                from src.games import save_manual_game
+                save_manual_game(name, exe)
+                self.load_games()
+            except Exception:
+                pass
+        self.push_screen(ManualGameInput(), on_dismiss)
 
     def gm_new(self):
         def on_name(n):
