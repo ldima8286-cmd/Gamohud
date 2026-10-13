@@ -3,6 +3,11 @@ import re
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None
+
 @dataclass
 class Game:
     name: str
@@ -15,17 +20,14 @@ class Game:
 
 def find_steam_games():
     games = []
-    # libraryfolders.vdf locations
     vdf_paths = []
     vdf_paths.append(Path.home() / ".steam" / "steam" / "config" / "libraryfolders.vdf")
     vdf_paths.append(Path.home() / ".steam" / "config" / "libraryfolders.vdf")
     vdf_paths.append(Path.home() / ".local" / "share" / "Steam" / "config" / "libraryfolders.vdf")
-    # scan all vdf
     for v in vdf_paths:
         if v.exists():
             try:
                 text = v.read_text(encoding='utf-8', errors='replace')
-                # find paths
                 for m in re.finditer(r'"path"\s+"([^"]+)"', text):
                     base = Path(m.group(1)).expanduser()
                     steamapps = base / "steamapps"
@@ -42,7 +44,6 @@ def find_steam_games():
                             pass
             except Exception:
                 pass
-    # dedupe by appid
     seen = set()
     res = []
     for g in games:
@@ -53,3 +54,113 @@ def find_steam_games():
         res.append(g)
     res.sort(key=lambda x: x.name.lower())
     return res
+
+
+def find_lutris_games():
+    games = []
+    bases = []
+    bases.append(Path.home() / ".config" / "lutris" / "games")
+    bases.append(Path.home() / ".local" / "share" / "lutris" / "games")
+    for b in bases:
+        if not b.exists():
+            continue
+        for f in b.glob("*.yml"):
+            try:
+                if yaml is None:
+                    continue
+                data = yaml.safe_load(f.read_text(encoding='utf-8', errors='replace')) or {}
+                name = data.get('name') or data.get('game', {}).get('name') or f.stem
+                exe = data.get('exe') or data.get('game', {}).get('exe') or data.get('game', {}).get('working_dir')
+                games.append(Game(name=str(name), launcher='lutris', exec=str(exe) if exe else "", appid=f.stem))
+            except Exception:
+                pass
+        for f in b.glob("*.yaml"):
+            try:
+                if yaml is None:
+                    continue
+                data = yaml.safe_load(f.read_text(encoding='utf-8', errors='replace')) or {}
+                name = data.get('name') or data.get('game', {}).get('name') or f.stem
+                exe = data.get('exe') or data.get('game', {}).get('exe') or ""
+                games.append(Game(name=str(name), launcher='lutris', exec=str(exe), appid=f.stem))
+            except Exception:
+                pass
+    seen = set()
+    res = []
+    for g in games:
+        key = f"lutris:{g.appid}"
+        if key in seen:
+            continue
+        seen.add(key)
+        res.append(g)
+    res.sort(key=lambda x: x.name.lower())
+    return res
+
+
+def find_bottles_games():
+    games = []
+    # Bottles stores data in various places; simple scan
+    bases = []
+    bases.append(Path.home() / ".local" / "share" / "bottles")
+    bases.append(Path.home() / ".config" / "bottles")
+    for b in bases:
+        if not b.exists():
+            continue
+        for f in b.rglob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding='utf-8', errors='replace'))
+                name = data.get('name') or data.get('Game', {}).get('name') or data.get('title')
+                if name:
+                    games.append(Game(name=str(name), launcher='bottles', exec="", appid=f.stem))
+            except Exception:
+                pass
+    seen = set()
+    res = []
+    for g in games:
+        key = f"bottles:{g.name.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        res.append(g)
+    res.sort(key=lambda x: x.name.lower())
+    return res
+
+
+def find_heroic_games():
+    games = []
+    bases = []
+    bases.append(Path.home() / ".config" / "heroic" / "games")
+    bases.append(Path.home() / ".config" / "heroic" / "library")
+    bases.append(Path.home() / ".var" / "app" / "com.heroicgameslauncher.hgl" / "config" / "heroic" / "games")
+    bases.append(Path.home() / ".var" / "app" / "com.heroicgameslauncher.hgl" / "config" / "heroic" / "library")
+    for b in bases:
+        if not b.exists():
+            continue
+        for f in b.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding='utf-8', errors='replace'))
+                name = data.get('title') or data.get('name') or data.get('appName')
+                exe = data.get('executable') or data.get('install_path')
+                if not name:
+                    continue
+                games.append(Game(name=str(name), launcher='heroic', exec=str(exe) if exe else "", appid=f.stem))
+            except Exception:
+                pass
+    seen = set()
+    res = []
+    for g in games:
+        key = f"heroic:{g.name.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        res.append(g)
+    res.sort(key=lambda x: x.name.lower())
+    return res
+
+
+def all_games():
+    g = []
+    g.extend(find_steam_games())
+    g.extend(find_lutris_games())
+    g.extend(find_bottles_games())
+    g.extend(find_heroic_games())
+    return g
