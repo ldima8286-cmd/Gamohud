@@ -481,12 +481,11 @@ class MpmApp(App):
             return False
 
     def launch_game_with_preset(self, use_gamemode=False):
-        sel = self._get_selected_game()
-        if not sel:
+        _, launcher, key, _ = self._parse_selected_game()
+        if not launcher:
             return
-        m = re.search(r'(\d+)$', sel)
-        appid = m.group(1) if m else sel
-        b = get_binding(appid)
+        appid_or_key = key
+        b = get_binding(appid_or_key)
         preset_name = ""
         gm_name = ""
         if b:
@@ -498,8 +497,22 @@ class MpmApp(App):
             self.apply_preset_by_name(preset_name)
 
         import subprocess, os
-        cmd = ['steam', f'steam://rungameid/{appid}']
+        cmd = None
         env = dict(os.environ)
+        if launcher == "steam":
+            # appid_or_key like appid
+            cmd = ["steam", f"steam://rungameid/{appid_or_key}"]
+        elif launcher == "lutris":
+            cmd = ["lutris", f"lutris:rungameid/{appid_or_key}"]
+        elif launcher == "heroic":
+            cmd = ["xdg-open", f"heroic://launch/{appid_or_key}"]
+        elif launcher == "bottles":
+            cmd = ["bottles", "run", "-b", appid_or_key]
+        elif launcher == "manual":
+            # try to run exec directly
+            import shlex
+            parts = shlex.split(appid_or_key) if " " in appid_or_key else [appid_or_key]
+            cmd = parts
 
         profile = None
         if use_gamemode and gm_name:
@@ -510,19 +523,21 @@ class MpmApp(App):
                     env = build_env(profile, env)
                     run_kill(profile)
                     gm = find_gamemoderun()
-                    if gm and profile.gamemode:
+                    if gm and profile.gamemode and cmd:
                         cmd = [gm] + cmd
             except Exception:
                 pass
 
+        if cmd is None:
+            return
         try:
             subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             return
 
-        if preset_name:
+        if preset_name and launcher == "steam":
             from src.restore import watch_and_restore
-            watch_and_restore(appid, on_restore=self._on_restored)
+            watch_and_restore(appid_or_key, on_restore=self._on_restored)
 
     def _on_restored(self, ok):
         if ok:
