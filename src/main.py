@@ -137,9 +137,13 @@ class MpmApp(App):
         with Vertical(id="monitor_view"):
             yield Label("Real-time Monitor", id="title_monitor")
             yield Label("CPU: --%", id="stat_cpu")
+            yield Label("Load1: --", id="stat_load1")
             yield Label("RAM: --/-- GB (--%)", id="stat_ram")
             yield Label("Swap: --%", id="stat_swap")
-            yield Label("Temp: --°C", id="stat_temp")
+            yield Label("CPU Temp: --°C", id="stat_temp")
+            yield Label("GPU Load: --%", id="stat_gpu_load")
+            yield Label("GPU Temp: --°C", id="stat_gpu_temp")
+            yield Label("VRAM: --/-- GB", id="stat_vram")
         with Horizontal(id="presets_view") as pv:
             pv.styles.display = "none"
             with Vertical(id="sidebar"):
@@ -357,9 +361,23 @@ class MpmApp(App):
             from src.monitor import get_stats
             st = get_stats()
             self.query_one("#stat_cpu").update(f"CPU: {st['cpu']}%")
+            self.query_one("#stat_load1").update(f"Load1: {st.get('load1', '-')}")
             self.query_one("#stat_ram").update(f"RAM: {st['ram_used']}/{st['ram_total']} GB ({st['ram_percent']}%)")
             self.query_one("#stat_swap").update(f"Swap: {st['swap_percent']}%")
-            self.query_one("#stat_temp").update(f"Temp: {st['temp']}°C" if st['temp'] is not None else "Temp: N/A")
+            temp = st.get('temp')
+            self.query_one("#stat_temp").update(f"CPU Temp: {temp}°C" if temp is not None else "CPU Temp: N/A")
+            gl = st.get('gpu_load')
+            self.query_one("#stat_gpu_load").update(f"GPU Load: {gl}%" if gl is not None else "GPU Load: N/A")
+            gt = st.get('gpu_temp')
+            self.query_one("#stat_gpu_temp").update(f"GPU Temp: {gt}°C" if gt is not None else "GPU Temp: N/A")
+            vu = st.get('vram_used')
+            vt = st.get('vram_total')
+            if vu is not None and vt is not None:
+                self.query_one("#stat_vram").update(f"VRAM: {vu}/{vt} GB")
+            elif vu is not None:
+                self.query_one("#stat_vram").update(f"VRAM: {vu} GB")
+            else:
+                self.query_one("#stat_vram").update("VRAM: N/A")
         except Exception:
             pass
 
