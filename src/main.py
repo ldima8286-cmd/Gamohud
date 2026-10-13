@@ -41,7 +41,37 @@ class NameInput(ModalScreen[str]):
         self.dismiss(name if name else "")
 
 
-class ProfileSelect(ModalScreen[str]):
+class ManualGameInput(ModalScreen[dict]):
+    def compose(self) -> ComposeResult:
+        with Grid():
+            yield Static("Name", id="q1")
+            yield Input(placeholder="Game name", id="mg_name")
+            yield Static("Executable (path)", id="q2")
+            yield Input(placeholder="/usr/bin/game or /path/to/game", id="mg_exec")
+            yield Button("OK", variant="primary", id="mg_ok")
+            yield Button("Cancel", id="mg_cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id
+        if bid == "mg_ok":
+            name = self.query_one("#mg_name", Input).value.strip()
+            exe = self.query_one("#mg_exec", Input).value.strip()
+            if name and exe:
+                self.dismiss({"name": name, "exe": exe})
+                return
+            self.dismiss({})
+            return
+        self.dismiss({})
+
+    @on(Input.Submitted)
+    def on_submit(self, event: Input.Submitted) -> None:
+        # fill from any submitted input? simplest: treat as OK logic
+        name = self.query_one("#mg_name", Input).value.strip()
+        exe = self.query_one("#mg_exec", Input).value.strip()
+        if name and exe:
+            self.dismiss({"name": name, "exe": exe})
+            return
+        self.dismiss({})
     def __init__(self, options):
         super().__init__()
         self.options = options
@@ -133,6 +163,7 @@ class MpmApp(App):
             yield Button("Launch with preset", id="launch_game")
             yield Button("Launch with preset + Game Mode", id="launch_full")
             yield Button("Restore MangoHud.conf", id="restore_conf")
+            yield Button("Add manual game", id="add_manual")
         with Vertical(id="gamemode_view") as gm:
             gm.styles.display = "none"
             yield Label("Game Mode Profiles", id="title_gamemode")
@@ -240,8 +271,8 @@ class MpmApp(App):
         if bid == "launch_full":
             self.launch_game_with_preset(use_gamemode=True)
             return
-        if bid == "restore_conf":
-            self.restore_conf_now()
+        if bid == "add_manual":
+            self.add_manual_game()
             return
         # fallback to existing
         if bid == "gm_new":
@@ -482,7 +513,21 @@ class MpmApp(App):
             except Exception:
                 pass
 
-    def restore_conf_now(self):
+    def add_manual_game(self):
+        def on_dismiss(res):
+            if not res:
+                return
+            name = res.get('name') or ''
+            exe = res.get('exe') or ''
+            if not name or not exe:
+                return
+            try:
+                from src.games import save_manual_game
+                save_manual_game(name, exe)
+                self.load_games()
+            except Exception:
+                pass
+        self.push_screen(ManualGameInput(), on_dismiss)
         from src.restore import restore_conf, has_backup
         if not has_backup():
             try:
