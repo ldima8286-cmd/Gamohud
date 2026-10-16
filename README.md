@@ -140,25 +140,31 @@ gamohud-run --backend vulkan_layer --env DXVK_HUD=0 -- mygame --fullscreen
 Обёртка подставляет окружение выбранного бэкенда, env из профиля, Game Mode и
 command-prefix, после чего `exec`-запускает приложение.
 
-## Сборка и установка
+## Сборка и установка (для разработчиков)
 
-Linux:
-```
-./build-gui.sh     # сборка dist/gamohud-gui (PyInstaller)
-./install.sh       # установка в ~/.local + .desktop ярлык + gamohud-run
+Linux/macOS:
+```bash
+git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
+cd mangohud-preset-manager-tui
+./run-gui.sh
 ```
 
 Windows:
-```
-build-gui.bat      # сборка dist\gamohud-gui\gamohud-gui.exe
+```cmd
+git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
+cd mangohud-preset-manager-tui
+run-gui.bat
 ```
 
-Готовый `gamohud-gui.exe` самодостаточен — переносите папку `dist\gamohud-gui`
-целиком. Для температур/нагрузки AMD/Intel на Windows опционально установите
-`pip install "gamohud[windows]"` и запустите LibreHardwareMonitor.
+При первом запуске автоматически создаётся `.venv` и ставятся зависимости.
 
-Linux-сборка требует наличия системного glibc (библиотеки из `/run/host`
-намеренно не бандлятся, чтобы не тащить несовместимую версию).
+**Сборка PyInstaller-бандла**
+
+Linux: `./build-gui.sh` → `dist/gamohud-gui/`
+Windows: `build-gui.bat` → `dist\gamohud-gui\gamohud-gui.exe`
+
+**Готовый релиз**: самодостаточный, копируй всю папку целиком. На Windows для температур/нагрузки AMD/Intel опционально запусти LibreHardwareMonitor; `wmi/pywin32` ставятся при желании (`pip install "gamohud[windows]"`).
+
 
 ## Статус
 
