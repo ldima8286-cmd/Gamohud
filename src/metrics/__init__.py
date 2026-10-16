@@ -47,8 +47,11 @@ def collect_gpu() -> dict:
 
 def collect_all(fps: dict | None = None) -> dict:
     data = {}
-    data.update(_system.collect())
-    data.update(_gpu.collect())
+    for collect in (_system.collect, _gpu.collect):
+        try:
+            data.update(collect() or {})
+        except Exception:
+            continue
     if fps:
         data.update(fps)
     return data

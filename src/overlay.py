@@ -149,7 +149,8 @@ class OverlayWindow(QWidget):
         while self.grid.count():
             item = self.grid.takeAt(0)
             w = item.widget()
-            if w:
+            if w is not None and w is not self.spark:
+                w.setParent(None)
                 w.deleteLater()
         self._rows.clear()
 

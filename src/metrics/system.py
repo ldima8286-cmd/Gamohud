@@ -271,10 +271,14 @@ def uptime():
 
 
 def collect():
-    return {
-        **cpu_stats(),
-        **memory_stats(),
-        **net_stats(),
-        **disk_stats(),
-        "uptime": uptime(),
-    }
+    data = {}
+    for section in (cpu_stats, memory_stats, net_stats, disk_stats):
+        try:
+            data.update(section())
+        except Exception:
+            continue
+    try:
+        data["uptime"] = uptime()
+    except Exception:
+        data["uptime"] = None
+    return data
