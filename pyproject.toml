@@ -8,3 +8,11 @@ dependencies = [
     "psutil>=6.1.0",
     "PySide6-Essentials>=6.5",
 ]
+
+[project.optional-dependencies]
+# Read CPU/GPU temperatures and sensors on Windows (needs LibreHardwareMonitor
+# or ACPI thermal zones). Optional: gamohud works without it, showing N/A.
+windows = [
+    "wmi>=1.5.1; sys_platform == 'win32'",
+    "pywin32>=306; sys_platform == 'win32'",
+]

@@ -1,7 +1,10 @@
 import json
+import os
 import re
 from pathlib import Path
 from dataclasses import dataclass, asdict
+
+from src.platform_utils import config_dir
 
 try:
     import yaml  # type: ignore
@@ -24,12 +27,18 @@ def find_steam_games():
     vdf_paths.append(Path.home() / ".steam" / "steam" / "config" / "libraryfolders.vdf")
     vdf_paths.append(Path.home() / ".steam" / "config" / "libraryfolders.vdf")
     vdf_paths.append(Path.home() / ".local" / "share" / "Steam" / "config" / "libraryfolders.vdf")
+    for env_var in ("ProgramFiles(x86)", "ProgramFiles"):
+        pf = os.environ.get(env_var)
+        if pf:
+            vdf_paths.append(Path(pf) / "Steam" / "config" / "libraryfolders.vdf")
+            vdf_paths.append(Path(pf) / "Steam" / "steamapps" / "libraryfolders.vdf")
     for v in vdf_paths:
         if v.exists():
             try:
                 text = v.read_text(encoding='utf-8', errors='replace')
                 for m in re.finditer(r'"path"\s+"([^"]+)"', text):
-                    base = Path(m.group(1)).expanduser()
+                    raw = m.group(1).replace("\\\\", "\\")
+                    base = Path(raw).expanduser()
                     steamapps = base / "steamapps"
                     if not steamapps.exists():
                         continue
@@ -167,7 +176,7 @@ def all_games():
     return g
 
 
-MANUAL_FILE = Path.home() / ".config" / "gamohud" / "manual_games.json"
+MANUAL_FILE = config_dir("gamohud") / "manual_games.json"
 
 
 def load_manual_games():

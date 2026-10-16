@@ -11,6 +11,7 @@ import os
 import shutil
 from pathlib import Path
 
+from src.platform_utils import IS_LINUX
 from ..base import BackendStatus, FPSBackend
 
 
@@ -25,6 +26,8 @@ class GamescopeBackend(FPSBackend):
         self._last = None
 
     def available(self) -> BackendStatus:
+        if not IS_LINUX:
+            return BackendStatus(False, "gamescope is Linux-only")
         if shutil.which("gamescope"):
             return BackendStatus(True)
         return BackendStatus(False, "gamescope not installed")

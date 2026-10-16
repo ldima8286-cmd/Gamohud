@@ -1,10 +1,19 @@
-"""System-wide metrics collected from /proc, /sys and psutil (no external tools)."""
+"""System-wide metrics, cross-platform (Windows / Linux / macOS).
+
+psutil provides the portable core; Linux-only sources (hwmon, RAPL) and
+Windows-only sources (WMI/ACPI) are used opportunistically when available.
+"""
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
+
+IS_LINUX = sys.platform.startswith("linux")
+IS_WINDOWS = os.name == "nt"
+IS_MACOS = sys.platform == "darwin"
 
 _SYS = Path("/sys")
 _PREV_NET = {}
@@ -29,7 +38,8 @@ def _read_int(path, default=None):
         return default
 
 
-def _hwmon_dirs() -> list[Path]:
+# ---------------------------------------------------------------- Linux hwmon
+def _hwmon_dirs() -> list:
     base = _SYS / "class" / "hwmon"
     if not base.exists():
         return []
@@ -49,13 +59,12 @@ def _hwmon_value(d: Path, pattern: str) -> float | None:
 
 
 CPU_TEMP_NAMES = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz", "cpu")
-GPU_TEMP_NAMES = ("amdgpu", "nouveau", "i915", "xe", "radeon")
 
 
-def cpu_temperature() -> float | None:
+# ------------------------------------------------------------------ CPU temp
+def _linux_cpu_temp() -> float | None:
     for d in _hwmon_dirs():
-        name = _hwmon_name(d)
-        if name in CPU_TEMP_NAMES:
+        if _hwmon_name(d) in CPU_TEMP_NAMES:
             v = _hwmon_value(d, "temp*_input")
             if v is not None:
                 return round(v / 1000.0, 1)
@@ -70,17 +79,53 @@ def cpu_temperature() -> float | None:
     return None
 
 
+def _windows_cpu_temp() -> float | None:
+    try:
+        import wmi  # type: ignore
+    except Exception:
+        return None
+    try:
+        c = wmi.WMI(namespace="root\\wmi")
+        zones = c.MSAcpi_ThermalZoneTemperature()
+        if zones:
+            return round(zones[0].CurrentTemperature / 10.0 - 273.15, 1)
+    except Exception:
+        pass
+    try:
+        c = wmi.WMI(namespace="root\\LibreHardwareMonitor")
+        sensors = c.Sensor()
+        for s in sensors:
+            if s.SensorType == "Temperature" and "CPU" in (s.Name or ""):
+                return round(float(s.Value), 1)
+    except Exception:
+        pass
+    return None
+
+
+def cpu_temperature() -> float | None:
+    if IS_LINUX:
+        return _linux_cpu_temp()
+    if IS_WINDOWS:
+        return _windows_cpu_temp()
+    return None
+
+
+# ------------------------------------------------------------------- CPU fan
 def cpu_fan() -> float | None:
+    if not IS_LINUX:
+        return None
     for d in _hwmon_dirs():
-        name = _hwmon_name(d)
-        if name in CPU_TEMP_NAMES:
+        if _hwmon_name(d) in CPU_TEMP_NAMES:
             v = _hwmon_value(d, "fan*_input")
             if v is not None:
                 return float(v)
     return None
 
 
+# ----------------------------------------------------------------- CPU power
 def cpu_power() -> float | None:
+    if not IS_LINUX:
+        return None
     base = _SYS / "class" / "powercap"
     if not base.exists():
         return None
@@ -106,31 +151,47 @@ def cpu_power() -> float | None:
     return round(total, 1) if found else None
 
 
+# --------------------------------------------------------------- CPU freq
 def cpu_frequency() -> float | None:
-    base = _SYS / "devices" / "system" / "cpu"
-    freqs = []
-    if base.exists():
-        for c in base.glob("cpu[0-9]*"):
-            v = _read_int(c / "cpufreq" / "scaling_cur_freq")
-            if v:
-                freqs.append(v)
-    if not freqs:
-        return None
-    return round(sum(freqs) / len(freqs) / 1000.0, 0)
+    if IS_LINUX:
+        base = _SYS / "devices" / "system" / "cpu"
+        freqs = []
+        if base.exists():
+            for c in base.glob("cpu[0-9]*"):
+                v = _read_int(c / "cpufreq" / "scaling_cur_freq")
+                if v:
+                    freqs.append(v)
+        if freqs:
+            return round(sum(freqs) / len(freqs) / 1000.0, 0)
+    try:
+        import psutil
+        f = psutil.cpu_freq()
+        if f and f.current:
+            return round(f.current, 0)
+    except Exception:
+        pass
+    return None
+
+
+def _loadavg():
+    try:
+        import psutil
+        return psutil.getloadavg()
+    except Exception:
+        if IS_LINUX:
+            try:
+                parts = _read_text("/proc/loadavg").split()
+                return (float(parts[0]), float(parts[1]), float(parts[2]))
+            except Exception:
+                pass
+        return (None, None, None)
 
 
 def cpu_stats():
     import psutil
-    freq = cpu_frequency()
-    if freq is None:
-        try:
-            f = psutil.cpu_freq()
-            freq = round(f.current, 0) if f else None
-        except Exception:
-            freq = None
     return {
         "cpu_usage": psutil.cpu_percent(interval=None),
-        "cpu_freq": freq,
+        "cpu_freq": cpu_frequency(),
         "cpu_temp": cpu_temperature(),
         "cpu_power": cpu_power(),
         "cpu_fan": cpu_fan(),
@@ -138,14 +199,7 @@ def cpu_stats():
     }
 
 
-def _loadavg():
-    try:
-        parts = _read_text("/proc/loadavg").split()
-        return (float(parts[0]), float(parts[1]), float(parts[2]))
-    except Exception:
-        return (None, None, None)
-
-
+# ---------------------------------------------------------------- memory
 def memory_stats():
     import psutil
     mem = psutil.virtual_memory()
@@ -158,10 +212,16 @@ def memory_stats():
     }
 
 
+# ------------------------------------------------------------------- net
 def net_stats():
     import psutil
     now = time.monotonic()
-    counters = psutil.net_io_counters()
+    try:
+        counters = psutil.net_io_counters()
+    except Exception:
+        return {"net_up": None, "net_down": None}
+    if counters is None:
+        return {"net_up": None, "net_down": None}
     sent, recv = counters.bytes_sent, counters.bytes_recv
     prev = _PREV_NET.get("all")
     up = down = None
@@ -175,10 +235,14 @@ def net_stats():
     return {"net_up": up, "net_down": down}
 
 
+# ------------------------------------------------------------------ disk
 def disk_stats():
     import psutil
     now = time.monotonic()
-    io = psutil.disk_io_counters()
+    try:
+        io = psutil.disk_io_counters()
+    except Exception:
+        io = None
     if io is None:
         return {"disk_read": None, "disk_write": None}
     prev = _PREV_DISK.get("all")
@@ -195,8 +259,14 @@ def disk_stats():
 
 def uptime():
     try:
-        return int(float(_read_text("/proc/uptime").split()[0]))
+        import psutil
+        return int(time.time() - psutil.boot_time())
     except Exception:
+        if IS_LINUX:
+            try:
+                return int(float(_read_text("/proc/uptime").split()[0]))
+            except Exception:
+                pass
         return None
 
 

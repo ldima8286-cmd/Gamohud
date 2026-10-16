@@ -5,7 +5,9 @@ import shutil
 import subprocess
 import yaml
 
-PROFILES = Path.home() / ".config" / "gamohud" / "gamemode_profiles.yaml"
+from src.platform_utils import config_dir
+
+PROFILES = config_dir("gamohud") / "gamemode_profiles.yaml"
 
 
 @dataclass

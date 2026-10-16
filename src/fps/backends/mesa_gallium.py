@@ -9,10 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.platform_utils import IS_LINUX
 from ..base import BackendStatus, FPSBackend
 
 
 def _has_amdgpu() -> bool:
+    if not IS_LINUX:
+        return False
     drm = Path("/sys/class/drm")
     if not drm.exists():
         return False

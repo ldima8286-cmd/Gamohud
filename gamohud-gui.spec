@@ -1,16 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 
 PROJECT = os.path.abspath(os.getcwd())
-VENV_SP = os.path.join(PROJECT, '.venv', 'lib', 'python3.13', 'site-packages')
+
+# Optional venv site-packages (used when building from the project venv).
+_venv_candidates = []
+for pyver in ('python3.13', 'python3.12', 'python3.11', 'python3.10'):
+    _venv_candidates.append(os.path.join(PROJECT, '.venv', 'lib', pyver, 'site-packages'))
+    _venv_candidates.append(os.path.join(PROJECT, '.venv', 'Lib', 'site-packages'))
+_venv = [p for p in _venv_candidates if os.path.isdir(p)]
 
 a = Analysis(
     ['src/app.py'],
-    pathex=[VENV_SP, PROJECT],
+    pathex=_venv + [PROJECT],
     binaries=[],
-    datas=[('src', 'src')],
+    datas=[('src', 'src'), ('assets', 'assets')],
     hiddenimports=[
+        'src.platform_utils',
         'src.gui',
         'src.overlay',
         'src.launcher',
@@ -40,10 +48,13 @@ a = Analysis(
     optimize=0,
 )
 
-# Do not bundle host system libraries (they carry newer glibc deps).
-# These are provided by the running system.
-_HOST_PREFIXES = ('/run/host/',)
-a.binaries = [b for b in a.binaries if not str(b[1]).startswith(_HOST_PREFIXES)]
+# On Linux, do not bundle host system libraries: they carry newer glibc deps
+# and are provided by the running system.
+if sys.platform.startswith('linux'):
+    _HOST_PREFIXES = ('/run/host/',)
+    a.binaries = [b for b in a.binaries if not str(b[1]).startswith(_HOST_PREFIXES)]
+
+_icon = 'assets/gamohud.ico' if os.path.exists('assets/gamohud.ico') else None
 
 pyz = PYZ(a.pure)
 
@@ -63,6 +74,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_icon,
 )
 
 coll = COLLECT(

@@ -1,9 +1,8 @@
 import os
 import sys
-import shlex
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QAction, QIcon
+from PySide6.QtGui import QColor, QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
+from src.platform_utils import open_uri_command, split_args
 from src.metrics import (
     METRICS,
     collect_all,
@@ -459,7 +459,7 @@ class AppsTab(QWidget):
             overlay=self.overlay_combo.currentText() or None,
             fps_backend=self.backend_combo.currentData() or None,
             gamemode=self.gamemode.isChecked(),
-            command_prefix=shlex.split(self.prefix.text()) if self.prefix.text().strip() else [],
+            command_prefix=split_args(self.prefix.text()) if self.prefix.text().strip() else [],
             env=self._parse_env(),
         )
 
@@ -504,7 +504,7 @@ class AppsTab(QWidget):
         elif g.launcher == "lutris" and g.appid:
             executable = f"lutris lutris:rungameid/{g.appid}"
         elif g.launcher == "heroic" and g.appid:
-            executable = f"xdg-open heroic://launch/{g.appid}"
+            executable = " ".join(open_uri_command(f"heroic://launch/{g.appid}"))
         elif g.launcher == "bottles" and g.appid:
             executable = f"bottles run -b {g.appid}"
         profile = AppProfile(
@@ -682,10 +682,20 @@ class MainWindow(QMainWindow):
                 self.overlay.set_profile(profile)
                 self._overlay_profile_name = profile.name
 
+    def _app_icon(self):
+        icon = QIcon.fromTheme("utilities-system-monitor")
+        if icon.isNull():
+            icon = QIcon.fromTheme("gamohud")
+        if icon.isNull():
+            pm = QPixmap(32, 32)
+            pm.fill(QColor("#7CFC00"))
+            icon = QIcon(pm)
+        return icon
+
     def _build_tray(self):
         self.tray = QSystemTrayIcon(self)
         try:
-            self.tray.setIcon(QIcon.fromTheme("utilities-system-monitor"))
+            self.tray.setIcon(self._app_icon())
         except Exception:
             pass
         menu = QMenu()
@@ -726,6 +736,10 @@ def main():
     app.setApplicationName("Gamohud")
     app.setQuitOnLastWindowClosed(False)
     win = MainWindow()
+    try:
+        app.setWindowIcon(win._app_icon())
+    except Exception:
+        pass
     win.show()
     return app.exec()
 

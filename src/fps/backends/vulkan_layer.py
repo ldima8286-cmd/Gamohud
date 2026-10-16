@@ -14,18 +14,24 @@ import json
 import os
 from pathlib import Path
 
+from src.platform_utils import IS_WINDOWS, config_dir, runtime_dir
 from ..base import BackendStatus, FPSBackend
 
 _LAYER_NAME = "VK_LAYER_GAMOHUD_overlay"
 
 
 def _layer_dirs():
-    xdg = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-    return [
-        Path(__file__).resolve().parents[3] / "assets" / "vulkan_layer",
-        Path(xdg) / "vulkan" / "implicit_layer.d",
-        Path("/usr/share/vulkan/implicit_layer.d"),
-    ]
+    dirs = [Path(__file__).resolve().parents[3] / "assets" / "vulkan_layer"]
+    if IS_WINDOWS:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            dirs.append(Path(appdata) / "Vulkan" / "implicit_layer.d")
+        dirs.append(config_dir("gamohud") / "vulkan_layer")
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        dirs.append(Path(xdg) / "vulkan" / "implicit_layer.d")
+        dirs.append(Path("/usr/share/vulkan/implicit_layer.d"))
+    return dirs
 
 
 def _layer_json() -> Path | None:
@@ -43,8 +49,7 @@ class VulkanLayerBackend(FPSBackend):
     env_only = False
 
     def _runtime_file(self) -> Path:
-        run = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-        return Path(run) / "gamohud-fps.json"
+        return runtime_dir() / "gamohud-fps.json"
 
     def available(self) -> BackendStatus:
         if _layer_json() is None:

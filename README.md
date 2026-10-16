@@ -29,11 +29,34 @@
 | `gamescope`       | запуск внутри gamescope, чтение таймингов | экспериментально |
 | `mesa_gallium`    | `GALLIUM_HUD` для AMD/Intel OpenGL | только переменные окружения |
 
+## Кроссплатформенность
+
+Приложение работает на **Windows**, **Linux** и **macOS**.
+
+- Портативные метрики (CPU/RAM/swap/сеть/диски) собираются через `psutil`.
+- NVIDIA-карты читаются через `nvidia-smi` на всех ОС; на Linux AMD/Intel —
+  через sysfs/hwmon; на Windows — best-effort через LibreHardwareMonitor (WMI),
+  если он запущен (для температур/нагрузки AMD/Intel нужен запущенный
+  LibreHardwareMonitor; NVIDIA работает и без него).
+- Пути конфигурации выбираются по ОС автоматически:
+  Windows `%APPDATA%\gamohud`, macOS `~/Library/Application Support/gamohud`,
+  Linux `$XDG_CONFIG_HOME/gamohud` (по умолчанию `~/.config/gamohud`).
+- Linux-специфичные FPS-бэкенды (`gamescope`, `mesa_gallium`) и Vulkan implicit
+  layer на других ОС просто помечаются как недоступные.
+- Game Mode (`gamemoderun`) доступен только на Linux.
+
 ## Запуск из исходников
 
+Linux:
 ```
 ./run-gui.sh          # GUI
 ./run-wrapper.sh ...  # CLI-обёртка gamohud-run
+```
+
+Windows:
+```
+run-gui.bat           # GUI
+run-wrapper.bat ...   # CLI-обёртка gamohud-run
 ```
 
 ## Вкладки
@@ -58,16 +81,23 @@ command-prefix, после чего `exec`-запускает приложени
 
 ## Сборка и установка
 
+Linux:
 ```
 ./build-gui.sh     # сборка dist/gamohud-gui (PyInstaller)
 ./install.sh       # установка в ~/.local + .desktop ярлык + gamohud-run
 ```
 
-После установки приложение запускается из меню как **Gamohud** (без терминала).
+Windows:
+```
+build-gui.bat      # сборка dist\gamohud-gui\gamohud-gui.exe
+```
 
-## Конфигурация
+Готовый `gamohud-gui.exe` самодостаточен — переносите папку `dist\gamohud-gui`
+целиком. Для температур/нагрузки AMD/Intel на Windows опционально установите
+`pip install "gamohud[windows]"` и запустите LibreHardwareMonitor.
 
-Профили хранятся в `~/.config/gamohud/profiles.yaml`.
+Linux-сборка требует наличия системного glibc (библиотеки из `/run/host`
+намеренно не бандлятся, чтобы не тащить несовместимую версию).
 
 ## Статус
 

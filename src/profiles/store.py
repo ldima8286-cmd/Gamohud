@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from src.platform_utils import config_dir
+
 from .model import (
     AppProfile,
     OverlayProfile,
@@ -17,13 +19,8 @@ except Exception:  # pragma: no cover
     yaml = None
 
 
-def config_dir() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-    return Path(base) / "gamohud"
-
-
 def profiles_path() -> Path:
-    return config_dir() / "profiles.yaml"
+    return config_dir("gamohud") / "profiles.yaml"
 
 
 class ProfileStore:

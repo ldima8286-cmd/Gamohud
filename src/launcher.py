@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
 
+from src.platform_utils import split_args
 from src.profiles import AppProfile, ProfileStore
 
 
@@ -27,9 +27,9 @@ def build_invocation(profile: AppProfile, store: ProfileStore, fps_manager):
         command.insert(0, "gamemoderun")
 
     if profile.executable:
-        command += shlex.split(profile.executable)
+        command += split_args(profile.executable)
     if profile.args:
-        command += shlex.split(profile.args)
+        command += split_args(profile.args)
 
     return command, env
 
