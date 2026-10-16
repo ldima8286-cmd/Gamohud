@@ -1,12 +1,12 @@
-"""Own Vulkan implicit-layer backend (placeholder / future work).
+"""Own Vulkan implicit-layer backend.
 
-When our companion C layer (`libgamohud_layer.so` + `gamohud_layer.json`) is
-installed, this backend injects it into Vulkan/DXVK/VKD3D applications and reads
-frame statistics the layer publishes to `$XDG_RUNTIME_DIR/gamohud-fps.json`.
+The companion C layer (`libgamohud_layer.so` / `gamohud_layer.dll` plus a
+`gamohud_layer.json` manifest) intercepts `vkQueuePresentKHR`, computes FPS and
+frametime, and writes them to a JSON file the overlay reads. Build the layer
+with `layer/build_layer.sh` (Unix) or `layer/build_layer.bat` (Windows).
 
-The C layer is not shipped yet, so `available()` reports False and the overlay
-falls back to other backends. The read path is ready so dropping in the layer
-later requires no further changes here.
+When the layer is not installed, `available()` reports False with a reason and
+the overlay simply falls back to other backends.
 """
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ _LAYER_NAME = "VK_LAYER_GAMOHUD_overlay"
 
 
 def _layer_dirs():
-    dirs = [Path(__file__).resolve().parents[3] / "assets" / "vulkan_layer"]
+    root = Path(__file__).resolve().parents[3]
+    dirs = [root / "layer" / "build", root / "assets" / "vulkan_layer"]
     if IS_WINDOWS:
         appdata = os.environ.get("APPDATA")
         if appdata:
@@ -52,8 +53,12 @@ class VulkanLayerBackend(FPSBackend):
         return runtime_dir() / "gamohud-fps.json"
 
     def available(self) -> BackendStatus:
-        if _layer_json() is None:
-            return BackendStatus(False, "gamohud Vulkan layer not installed yet")
+        manifest = _layer_json()
+        if manifest is None:
+            return BackendStatus(False, "gamohud Vulkan layer not built/installed")
+        lib = manifest.parent / ("gamohud_layer.dll" if IS_WINDOWS else "libgamohud_layer.so")
+        if not lib.exists():
+            return BackendStatus(False, f"layer library missing next to {manifest.name}")
         return BackendStatus(True)
 
     def launch_env(self, profile=None) -> dict:
@@ -63,6 +68,7 @@ class VulkanLayerBackend(FPSBackend):
         return {
             "VK_INSTANCE_LAYERS": _LAYER_NAME,
             "VK_LAYER_PATH": str(manifest.parent),
+            "GAMOHUD_ENABLE": "1",
             "GAMOHUD_FPS_FILE": str(self._runtime_file()),
         }
 

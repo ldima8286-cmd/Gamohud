@@ -25,9 +25,24 @@
 | Бэкенд            | Что делает | Статус |
 |-------------------|------------|--------|
 | `null`            | только системные метрики | всегда доступен |
-| `vulkan_layer`    | собственный Vulkan implicit layer пишет FPS в `$XDG_RUNTIME_DIR/gamohud-fps.json` | интерфейс готов, C-слой ещё не собран |
+| `vulkan_layer`    | собственный Vulkan implicit layer (C) считает кадры и пишет FPS в `gamohud-fps.json` | исходники в `layer/`, нужно собрать |
 | `gamescope`       | запуск внутри gamescope, чтение таймингов | экспериментально |
 | `mesa_gallium`    | `GALLIUM_HUD` для AMD/Intel OpenGL | только переменные окружения |
+
+### Сборка своего Vulkan-слоя (настоящий FPS)
+
+Слой написан на C и перехватывает `vkQueuePresentKHR`. Требуется компилятор и
+Vulkan-заголовки.
+
+Linux:
+```
+./layer/build_layer.sh --install
+```
+Windows (Vulkan SDK, `VULKAN_SDK` задан):
+```
+layer\build_layer.bat
+```
+Подробности — в `layer/README.md`.
 
 ## Кроссплатформенность
 

@@ -19,6 +19,16 @@ rm -rf "$APP_DIR/gamohud-gui"
 cp -r "$SRC" "$APP_DIR/"
 cp "$SCRIPT_DIR/assets/gamohud.svg" "$ICON_DIR/gamohud.svg"
 
+# Optionally build and install the Vulkan layer (best effort, needs a compiler
+# and Vulkan headers). Failure is non-fatal.
+if [ -x "$SCRIPT_DIR/layer/build_layer.sh" ]; then
+    if "$SCRIPT_DIR/layer/build_layer.sh" --install; then
+        echo "Vulkan layer installed (real FPS backend available)."
+    else
+        echo "Vulkan layer not built (no compiler/Vulkan headers) - FPS backend disabled."
+    fi
+fi
+
 cat > "$BIN_DIR/gamohud-gui" <<EOF
 #!/bin/sh
 exec "$APP_DIR/gamohud-gui/gamohud-gui" "\$@"

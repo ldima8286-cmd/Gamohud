@@ -1,0 +1,21 @@
+{
+    "file_format_version": "1.1.2",
+    "layer": {
+        "name": "VK_LAYER_GAMOHUD_overlay",
+        "type": "GLOBAL",
+        "library_path": "./libgamohud_layer.so",
+        "api_version": "1.1.0",
+        "implementation_version": "1",
+        "description": "gamohud frame counter layer",
+        "functions": {
+            "vkGetInstanceProcAddr": "vkGetInstanceProcAddr_gh",
+            "vkGetDeviceProcAddr": "vkGetDeviceProcAddr_gh"
+        },
+        "enable_environment": {
+            "GAMOHUD_ENABLE": "1"
+        },
+        "disable_environment": {
+            "GAMOHUD_DISABLE": "1"
+        }
+    }
+}

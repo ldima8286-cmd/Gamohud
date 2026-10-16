@@ -6,3 +6,7 @@ venv/
 *.log
 dist/
 build/
+*.so
+*.dll
+*.o
+*.obj
