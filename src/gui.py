@@ -740,6 +740,7 @@ def main():
         app.setWindowIcon(win._app_icon())
     except Exception:
         pass
+    app.aboutToQuit.connect(win.fps_manager.stop)
     win.show()
     return app.exec()
 

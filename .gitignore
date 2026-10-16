@@ -10,3 +10,4 @@ build/
 *.dll
 *.o
 *.obj
+tools/presentmon/

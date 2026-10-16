@@ -28,6 +28,7 @@ def main(argv: list[str]) -> int:
     gamemode = False
     env_overrides = {}
     profile_name = None
+    profile = None
     command: list[str] = []
 
     i = 0
@@ -93,6 +94,10 @@ def main(argv: list[str]) -> int:
 
     if not cmd:
         return _usage()
+    try:
+        manager.start(cmd, profile)
+    except Exception:
+        pass
     try:
         os.execvpe(cmd[0], cmd, env)
     except FileNotFoundError:

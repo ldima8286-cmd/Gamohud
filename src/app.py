@@ -17,6 +17,9 @@ def main():
     if argv and argv[0] in ("run", "--run"):
         from src.run_wrapper import main as run_main
         return run_main(argv[1:])
+    if argv and argv[0] in ("presentmon-helper", "--presentmon-helper"):
+        from src.fps.presentmon_helper import main as pm_main
+        return pm_main(argv[1:])
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     from src.gui import main as gui_main
     return gui_main()

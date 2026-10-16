@@ -26,8 +26,28 @@
 |-------------------|------------|--------|
 | `null`            | только системные метрики | всегда доступен |
 | `vulkan_layer`    | собственный Vulkan implicit layer (C) считает кадры и пишет FPS в `gamohud-fps.json` | исходники в `layer/`, нужно собрать |
+| `presentmon`      | Intel PresentMon по ETW: DirectX 9/10/11/12, OpenGL и Vulkan | Windows; нужен PresentMon.exe и права администратора |
 | `gamescope`       | запуск внутри gamescope, чтение таймингов | экспериментально |
 | `mesa_gallium`    | `GALLIUM_HUD` для AMD/Intel OpenGL | только переменные окружения |
+
+### PresentMon на Windows (FPS не только в Vulkan-играх)
+
+Vulkan-слой видит только Vulkan-приложения, а большинство Windows-игр работает на
+DirectX. Для них используется `presentmon`: наш помощник запускает Intel
+**PresentMon** (открытый, MIT) в режиме ETW и парсит его вывод в `gamohud-fps.json`.
+
+Скачать бинарник PresentMon в `tools/presentmon/`:
+```
+python tools/fetch_presentmon.py
+```
+Либо укажите существующий: `GAMOHUD_PRESENTMON=C:\path\PresentMon.exe`. Файл можно
+задать и вручную рядом с приложением. Захват требует прав администратора или
+членства в группе «Performance Log Users» (иначе будет «access denied»).
+
+Полезные переменные окружения: `GAMOHUD_PROCESS_NAME` — имя exe игры (нужно для
+игр, запускаемых через Steam/Lutris, где имя процесса заранее неизвестно, иначе
+бэкенд ловит все процессы и выбирает активный); `GAMOHUD_PRESENTMON_ADMIN=1` —
+попросить PresentMon перезапуститься с повышением прав.
 
 ### Сборка своего Vulkan-слоя (настоящий FPS)
 
@@ -56,8 +76,9 @@ layer\build_layer.bat
 - Пути конфигурации выбираются по ОС автоматически:
   Windows `%APPDATA%\gamohud`, macOS `~/Library/Application Support/gamohud`,
   Linux `$XDG_CONFIG_HOME/gamohud` (по умолчанию `~/.config/gamohud`).
-- Linux-специфичные FPS-бэкенды (`gamescope`, `mesa_gallium`) и Vulkan implicit
-  layer на других ОС просто помечаются как недоступные.
+- Linux-специфичные FPS-бэкенды (`gamescope`, `mesa_gallium`) недоступны на других
+  ОС; Vulkan implicit layer доступен на всех ОС (нужно собрать); `presentmon`
+  доступен только на Windows.
 - Game Mode (`gamemoderun`) доступен только на Linux.
 
 ## Запуск из исходников

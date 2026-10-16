@@ -12,11 +12,17 @@ for pyver in ('python3.13', 'python3.12', 'python3.11', 'python3.10'):
     _venv_candidates.append(os.path.join(PROJECT, '.venv', 'Lib', 'site-packages'))
 _venv = [p for p in _venv_candidates if os.path.isdir(p)]
 
+# Bundle a locally provided PresentMon binary if the user fetched one.
+_presentmon_dir = os.path.join(PROJECT, 'tools', 'presentmon')
+_extra_datas = []
+if os.path.isdir(_presentmon_dir):
+    _extra_datas.append((_presentmon_dir, 'tools/presentmon'))
+
 a = Analysis(
     ['src/app.py'],
     pathex=_venv + [PROJECT],
     binaries=[],
-    datas=[('src', 'src'), ('assets', 'assets')],
+    datas=[('src', 'src'), ('assets', 'assets')] + _extra_datas,
     hiddenimports=[
         'src.platform_utils',
         'src.gui',
@@ -28,10 +34,13 @@ a = Analysis(
         'src.metrics.gpu',
         'src.fps',
         'src.fps.manager',
+        'src.fps.presentmon_common',
+        'src.fps.presentmon_helper',
         'src.fps.backends',
         'src.fps.backends.null',
         'src.fps.backends.mesa_gallium',
         'src.fps.backends.gamescope',
+        'src.fps.backends.presentmon',
         'src.fps.backends.vulkan_layer',
         'src.profiles',
         'src.profiles.model',
