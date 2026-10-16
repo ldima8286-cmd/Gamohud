@@ -84,6 +84,13 @@ class OverlayWindow(QWidget):
         self.locked = bool(getattr(profile, "click_through", True))
         self.on_position_changed = None
         self._drag_offset = None
+        self._system_moving = False
+        self._programmatic_move = False
+
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(400)
+        self._save_timer.timeout.connect(self._emit_position_changed)
 
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -125,9 +132,9 @@ class OverlayWindow(QWidget):
             | Qt.WindowDoesNotAcceptFocus
         )
         if self.locked:
-            flags |= Qt.Tool  # click-through-friendly, stays above; but mouse may miss on Wayland
+            flags |= Qt.Tool
         else:
-            flags |= Qt.Window  # interactive so mouse events reach it for dragging
+            flags |= Qt.Window
         if self.locked:
             flags |= Qt.WindowTransparentForInput
         return flags
@@ -166,31 +173,62 @@ class OverlayWindow(QWidget):
     def mousePressEvent(self, event):
         if not self.locked and event.button() == Qt.LeftButton:
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._system_moving = False
+            handle = self.windowHandle()
+            if handle is not None and hasattr(handle, "startSystemMove"):
+                try:
+                    self._system_moving = bool(handle.startSystemMove())
+                except Exception:
+                    self._system_moving = False
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if not self.locked and self._drag_offset is not None and event.buttons() & Qt.LeftButton:
+        # Manual fallback for platforms where startSystemMove() is unavailable.
+        if (not self.locked and not self._system_moving
+                and self._drag_offset is not None and event.buttons() & Qt.LeftButton):
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             event.accept()
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if not self.locked and event.button() == Qt.LeftButton and self._drag_offset is not None:
+        if (not self.locked and event.button() == Qt.LeftButton
+                and (self._drag_offset is not None or self._system_moving)):
             self._drag_offset = None
-            screen = QApplication.primaryScreen()
-            if screen is not None:
-                geo = screen.availableGeometry()
-                self.profile.position = "custom"
-                self.profile.x = self.x() - geo.left()
-                self.profile.y = self.y() - geo.top()
-            if callable(self.on_position_changed):
-                self.on_position_changed()
+            self._system_moving = False
+            self._commit_position()
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self._programmatic_move or self.locked:
+            return
+        if self._drag_offset is None and not self._system_moving:
+            return
+        self._update_profile_position()
+        self._save_timer.start()
+
+    def _update_profile_position(self):
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        geo = screen.availableGeometry()
+        self.profile.position = "custom"
+        self.profile.x = self.x() - geo.left()
+        self.profile.y = self.y() - geo.top()
+
+    def _commit_position(self):
+        self._update_profile_position()
+        self._emit_position_changed()
+
+    def _emit_position_changed(self):
+        self._system_moving = False
+        if callable(self.on_position_changed):
+            self.on_position_changed()
 
     def _try_layer_shell(self) -> bool:
         """Best-effort: real always-on-top over fullscreen needs a layer-shell
@@ -266,11 +304,12 @@ class OverlayWindow(QWidget):
             if fps is not None:
                 self.spark.push(fps)
         self.adjustSize()
-        self._reposition()
+        if self._drag_offset is None and not self._system_moving:
+            self._reposition()
         self.raise_()
 
-    def _reposition(self):
-        if self._drag_offset is not None:
+    def _reposition(self, force: bool = False):
+        if self._drag_offset is not None or self._system_moving:
             return
         screen = QApplication.primaryScreen()
         if screen is None:
@@ -281,6 +320,10 @@ class OverlayWindow(QWidget):
         m = self.profile.margin
         pos = self.profile.position
         if pos == "custom":
+            # Wayland ignores move(): the compositor owns the position, so once
+            # the user has dragged the overlay we must not fight it.
+            if not force:
+                return
             x, y = geo.left() + self.profile.x, geo.top() + self.profile.y
         else:
             cols = {
@@ -296,7 +339,9 @@ class OverlayWindow(QWidget):
             vert, _, horiz = pos.partition("-")
             x = cols.get(horiz or "left", cols["left"])
             y = rows.get(vert, rows["top"])
+        self._programmatic_move = True
         self.move(x, y)
+        self._programmatic_move = False
 
     # -- public -----------------------------------------------------------
     def set_profile(self, profile: OverlayProfile):
@@ -306,6 +351,7 @@ class OverlayWindow(QWidget):
         self._build_rows()
         self._apply_style()
         self.refresh()
+        self._reposition(force=True)
         if not self.isVisible():
             self.show()
         self.raise_()
