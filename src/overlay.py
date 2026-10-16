@@ -122,9 +122,12 @@ class OverlayWindow(QWidget):
         flags = (
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
-            | Qt.Tool
             | Qt.WindowDoesNotAcceptFocus
         )
+        if self.locked:
+            flags |= Qt.Tool  # click-through-friendly, stays above; but mouse may miss on Wayland
+        else:
+            flags |= Qt.Window  # interactive so mouse events reach it for dragging
         if self.locked:
             flags |= Qt.WindowTransparentForInput
         return flags
