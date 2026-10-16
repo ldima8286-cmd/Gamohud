@@ -52,6 +52,7 @@ from src.profiles import (
 )
 from src.launcher import launch as launch_profile
 from src import games as games_mod
+from src.i18n import LANGUAGES, get_language, set_language, tr
 
 
 class DashboardTab(QWidget):
@@ -60,7 +61,7 @@ class DashboardTab(QWidget):
         self.app = app
         self.labels = {}
         root = QVBoxLayout(self)
-        box = QGroupBox("Live metrics")
+        box = QGroupBox(tr("Live metrics"))
         form = QFormLayout(box)
         for key in METRICS:
             lb = QLabel("--")
@@ -78,10 +79,10 @@ class DashboardTab(QWidget):
         data = collect_all(self.app.fps_manager.read())
         for key, lb in self.labels.items():
             text = format_metric(key, data.get(key))
-            lb.setText(f"{text} {metric_unit(key)}".strip() if text is not None else "N/A")
+            lb.setText(f"{text} {metric_unit(key)}".strip() if text is not None else tr("N/A"))
         self.info.setText(
-            f"FPS backend: {self.app.fps_manager.backend.label}  |  "
-            f"Overlay profile: {self.app.current_overlay_name()}"
+            f"{tr('FPS backend')}: {self.app.fps_manager.backend.label}  |  "
+            f"{tr('Overlay profile')}: {self.app.current_overlay_name()}"
         )
 
 
@@ -112,10 +113,10 @@ class OverlayTab(QWidget):
         left.addWidget(self.list, 1)
         row = QHBoxLayout()
         for text, slot in (
-            ("New", self.new),
-            ("Duplicate", self.duplicate),
-            ("Delete", self.delete),
-            ("Set active", self.set_active),
+            (tr("New"), self.new),
+            (tr("Duplicate"), self.duplicate),
+            (tr("Delete"), self.delete),
+            (tr("Set active"), self.set_active),
         ):
             b = QPushButton(text)
             b.clicked.connect(slot)
@@ -128,49 +129,49 @@ class OverlayTab(QWidget):
         holder = QWidget()
         rl = QVBoxLayout(holder)
 
-        appearance = QGroupBox("Appearance")
+        appearance = QGroupBox(tr("Appearance"))
         af = QFormLayout(appearance)
         self.name = QLineEdit()
-        af.addRow("Name", self.name)
+        af.addRow(tr("Name"), self.name)
         self.position = QComboBox()
         self.position.addItems(POSITIONS)
-        af.addRow("Position", self.position)
+        af.addRow(tr("Position"), self.position)
         self.x = QSpinBox(); self.x.setRange(0, 10000)
         self.y = QSpinBox(); self.y.setRange(0, 10000)
         xy = QHBoxLayout(); xy.addWidget(self.x); xy.addWidget(self.y)
         xw = QWidget(); xw.setLayout(xy)
-        af.addRow("Custom x / y", xw)
+        af.addRow(tr("Custom x / y"), xw)
         self.margin = QSpinBox(); self.margin.setRange(0, 500)
-        af.addRow("Margin", self.margin)
+        af.addRow(tr("Margin"), self.margin)
         self.font_family = QLineEdit()
-        af.addRow("Font", self.font_family)
+        af.addRow(tr("Font"), self.font_family)
         self.font_size = QSpinBox(); self.font_size.setRange(7, 48)
-        af.addRow("Font size", self.font_size)
-        self.font_bold = QCheckBox("Bold")
+        af.addRow(tr("Font size"), self.font_size)
+        self.font_bold = QCheckBox(tr("Bold"))
         af.addRow(self.font_bold)
         self.opacity = QDoubleSpinBox(); self.opacity.setRange(0.05, 1.0); self.opacity.setSingleStep(0.05)
-        af.addRow("Opacity", self.opacity)
+        af.addRow(tr("Opacity"), self.opacity)
         self.bg_opacity = QDoubleSpinBox(); self.bg_opacity.setRange(0.0, 1.0); self.bg_opacity.setSingleStep(0.05)
-        af.addRow("Background opacity", self.bg_opacity)
+        af.addRow(tr("Background opacity"), self.bg_opacity)
         self.border_radius = QSpinBox(); self.border_radius.setRange(0, 40)
-        af.addRow("Corner radius", self.border_radius)
+        af.addRow(tr("Corner radius"), self.border_radius)
         self.refresh_ms = QSpinBox(); self.refresh_ms.setRange(100, 5000); self.refresh_ms.setSingleStep(100)
-        af.addRow("Refresh (ms)", self.refresh_ms)
-        self.click_through = QCheckBox("Click-through (ignore mouse)")
+        af.addRow(tr("Refresh (ms)"), self.refresh_ms)
+        self.click_through = QCheckBox(tr("Click-through (ignore mouse)"))
         af.addRow(self.click_through)
-        self.graph = QCheckBox("Show FPS graph")
+        self.graph = QCheckBox(tr("Show FPS graph"))
         af.addRow(self.graph)
         self.fg_btn = _color_button("#ffffff", self)
         self.label_btn = _color_button("#9ad1ff", self)
         self.accent_btn = _color_button("#7CFC00", self)
         self.bg_btn = _color_button("#000000", self)
-        af.addRow("Value color", self.fg_btn)
-        af.addRow("Label color", self.label_btn)
-        af.addRow("Accent color", self.accent_btn)
-        af.addRow("Background color", self.bg_btn)
+        af.addRow(tr("Value color"), self.fg_btn)
+        af.addRow(tr("Label color"), self.label_btn)
+        af.addRow(tr("Accent color"), self.accent_btn)
+        af.addRow(tr("Background color"), self.bg_btn)
         rl.addWidget(appearance)
 
-        metrics = QGroupBox("Metrics")
+        metrics = QGroupBox(tr("Metrics"))
         mf = QFormLayout(metrics)
         self.checks = {}
         for key in METRICS:
@@ -180,9 +181,9 @@ class OverlayTab(QWidget):
         rl.addWidget(metrics)
 
         btn_row = QHBoxLayout()
-        save = QPushButton("Save")
+        save = QPushButton(tr("Save"))
         save.clicked.connect(self.save)
-        preview = QPushButton("Apply / Preview")
+        preview = QPushButton(tr("Apply / Preview"))
         preview.clicked.connect(self.preview)
         btn_row.addWidget(save)
         btn_row.addWidget(preview)
@@ -197,7 +198,7 @@ class OverlayTab(QWidget):
         self.list.clear()
         for p in self.app.store.overlay_profiles:
             tag = " (active)" if p.name == self.app.store.active_overlay else ""
-            it = QListWidgetItem(f"{p.name}{tag}")
+            it = QListWidgetItem(f"{p.name}{tr(tag)}")
             it.setData(Qt.UserRole, p.name)
             self.list.addItem(it)
 
@@ -254,14 +255,14 @@ class OverlayTab(QWidget):
         new = self._collect()
         if new.name != self.current.name:
             if self.app.store.get_overlay(new.name):
-                QMessageBox.warning(self, "Save", "A profile with that name exists.")
+                QMessageBox.warning(self, tr("Save"), tr("A profile with that name exists."))
                 return
             self.app.store.delete_overlay(self.current.name)
         self.app.store.upsert_overlay(new)
         self.app.store.save()
         self.reload()
         self.app.refresh_overlay()
-        self.app.status.showMessage(f"Saved overlay profile '{new.name}'", 4000)
+        self.app.status.showMessage(tr("Saved overlay profile '{name}'").format(name=new.name), 4000)
 
     def preview(self):
         if not self.current:
@@ -286,7 +287,7 @@ class OverlayTab(QWidget):
     def delete(self):
         if not self.current:
             return
-        if QMessageBox.question(self, "Delete", f"Delete '{self.current.name}'?") != QMessageBox.Yes:
+        if QMessageBox.question(self, tr("Delete"), tr("Delete '{name}'?").format(name=self.current.name)) != QMessageBox.Yes:
             return
         self.app.store.delete_overlay(self.current.name)
         self.app.store.save()
@@ -330,50 +331,50 @@ class AppsTab(QWidget):
         holder = QWidget()
         rl = QVBoxLayout(holder)
 
-        basic = QGroupBox("Application profile")
+        basic = QGroupBox(tr("Application profile"))
         bf = QFormLayout(basic)
         self.name = QLineEdit()
-        bf.addRow("Name", self.name)
+        bf.addRow(tr("Name"), self.name)
         self.match = QLineEdit()
-        self.match.setPlaceholderText("comma-separated patterns, e.g. steam_app_*, wine*")
-        bf.addRow("Match processes", self.match)
+        self.match.setPlaceholderText(tr("comma-separated patterns, e.g. steam_app_*, wine*"))
+        bf.addRow(tr("Match processes"), self.match)
         self.executable = QLineEdit()
-        bf.addRow("Executable / command", self.executable)
+        bf.addRow(tr("Executable / command"), self.executable)
         self.process_name = QLineEdit()
-        self.process_name.setPlaceholderText("optional, for PresentMon: game exe name, e.g. game.exe")
-        bf.addRow("Game process name", self.process_name)
+        self.process_name.setPlaceholderText(tr("optional, for PresentMon: game exe name, e.g. game.exe"))
+        bf.addRow(tr("Game process name"), self.process_name)
         self.args = QLineEdit()
-        bf.addRow("Arguments", self.args)
+        bf.addRow(tr("Arguments"), self.args)
         self.cwd = QLineEdit()
-        bf.addRow("Working dir", self.cwd)
+        bf.addRow(tr("Working dir"), self.cwd)
         self.overlay_combo = QComboBox()
-        bf.addRow("Overlay profile", self.overlay_combo)
+        bf.addRow(tr("Overlay profile"), self.overlay_combo)
         self.backend_combo = QComboBox()
-        bf.addRow("FPS backend", self.backend_combo)
-        self.gamemode = QCheckBox("Run with gamemoderun")
+        bf.addRow(tr("FPS backend"), self.backend_combo)
+        self.gamemode = QCheckBox(tr("Run with gamemoderun"))
         bf.addRow(self.gamemode)
         self.prefix = QLineEdit()
-        self.prefix.setPlaceholderText("extra command prefix (shell words)")
-        bf.addRow("Command prefix", self.prefix)
+        self.prefix.setPlaceholderText(tr("extra command prefix (shell words)"))
+        bf.addRow(tr("Command prefix"), self.prefix)
         self.env = QPlainTextEdit()
-        self.env.setPlaceholderText("KEY=value per line")
+        self.env.setPlaceholderText("KEY=value")
         self.env.setMaximumHeight(90)
-        bf.addRow("Environment", self.env)
+        bf.addRow(tr("Environment"), self.env)
         rl.addWidget(basic)
 
-        detect = QGroupBox("Import from installed games")
+        detect = QGroupBox(tr("Import from installed games"))
         df = QFormLayout(detect)
         self.game_combo = QComboBox()
-        df.addRow("Detected game", self.game_combo)
-        imp = QPushButton("Import selected game")
+        df.addRow(tr("Detected game"), self.game_combo)
+        imp = QPushButton(tr("Import selected game"))
         imp.clicked.connect(self.import_game)
         df.addRow(imp)
         rl.addWidget(detect)
 
         btns = QHBoxLayout()
-        save = QPushButton("Save")
+        save = QPushButton(tr("Save"))
         save.clicked.connect(self.save)
-        run = QPushButton("Launch")
+        run = QPushButton(tr("Launch"))
         run.clicked.connect(self.launch)
         btns.addWidget(save)
         btns.addWidget(run)
@@ -387,7 +388,7 @@ class AppsTab(QWidget):
     def reload(self):
         self.list.clear()
         for p in self.app.store.app_profiles:
-            it = QListWidgetItem(p.name or "(unnamed)")
+            it = QListWidgetItem(p.name or tr("(unnamed)"))
             it.setData(Qt.UserRole, p.name)
             self.list.addItem(it)
         self._reload_combos()
@@ -476,7 +477,7 @@ class AppsTab(QWidget):
         self.app.store.upsert_app(new)
         self.app.store.save()
         self.reload()
-        self.app.status.showMessage(f"Saved app profile '{new.name}'", 4000)
+        self.app.status.showMessage(tr("Saved app profile '{name}'").format(name=new.name), 4000)
 
     def new(self):
         self.app.store.upsert_app(AppProfile(name="new-app"))
@@ -492,7 +493,7 @@ class AppsTab(QWidget):
 
     def from_running(self):
         names = sorted(set(running_process_names()))
-        name, ok = QInputDialog.getItem(self, "Running process", "Process name:", names, 0, False)
+        name, ok = QInputDialog.getItem(self, tr("Running process"), tr("Process name:"), names, 0, False)
         if not ok or not name:
             return
         self.app.store.upsert_app(AppProfile(name=name, match=[name]))
@@ -524,15 +525,15 @@ class AppsTab(QWidget):
 
     def launch(self):
         if not self.current:
-            QMessageBox.information(self, "Launch", "Select or save a profile first.")
+            QMessageBox.information(self, tr("Launch"), tr("Select or save a profile first."))
             return
         profile = self._collect()
         try:
             _proc, command = launch_profile(profile, self.app.store, self.app.fps_manager)
             self.app.start_overlay()
-            self.app.status.showMessage(f"Launched: {' '.join(command)}", 5000)
+            self.app.status.showMessage(tr("Launched: {command}").format(command=" ".join(command)), 5000)
         except Exception as e:
-            QMessageBox.warning(self, "Launch failed", str(e))
+            QMessageBox.warning(self, tr("Launch failed"), str(e))
 
 
 class _PresentMonDownloader(QThread):
@@ -555,30 +556,34 @@ class SettingsTab(QWidget):
         self.app = app
         root = QVBoxLayout(self)
 
-        backend = QGroupBox("Global FPS backend")
+        backend = QGroupBox(tr("Global FPS backend"))
         bf = QFormLayout(backend)
         self.backend_combo = QComboBox()
-        bf.addRow("Backend", self.backend_combo)
+        bf.addRow(tr("Backend"), self.backend_combo)
         self.backend_desc = QLabel("")
         self.backend_desc.setWordWrap(True)
         bf.addRow(self.backend_desc)
-        self.download_pm = QPushButton("Download PresentMon (Windows)...")
+        self.download_pm = QPushButton(tr("Download PresentMon (Windows)..."))
         self.download_pm.clicked.connect(self.download_presentmon)
         bf.addRow(self.download_pm)
         self._pm_worker = None
         root.addWidget(backend)
 
-        general = QGroupBox("General")
+        general = QGroupBox(tr("General"))
         gf = QFormLayout(general)
-        self.start_overlay = QCheckBox("Start overlay when the app launches")
+        self.language_combo = QComboBox()
+        for code in LANGUAGES:
+            self.language_combo.addItem(LANGUAGES[code], code)
+        gf.addRow(tr("Language"), self.language_combo)
+        self.start_overlay = QCheckBox(tr("Start overlay when the app launches"))
         gf.addRow(self.start_overlay)
-        self.auto_switch = QCheckBox("Auto-switch overlay by running process")
+        self.auto_switch = QCheckBox(tr("Auto-switch overlay by running process"))
         gf.addRow(self.auto_switch)
         self.active_combo = QComboBox()
-        gf.addRow("Default overlay profile", self.active_combo)
+        gf.addRow(tr("Default overlay profile"), self.active_combo)
         root.addWidget(general)
 
-        save = QPushButton("Save")
+        save = QPushButton(tr("Save"))
         save.clicked.connect(self.apply)
         root.addWidget(save)
         root.addStretch(1)
@@ -601,6 +606,9 @@ class SettingsTab(QWidget):
         for p in self.app.store.overlay_profiles:
             self.active_combo.addItem(p.name)
         self.active_combo.setCurrentText(self.app.store.active_overlay)
+        idx = self.language_combo.findData(get_language())
+        if idx >= 0:
+            self.language_combo.setCurrentIndex(idx)
 
     def _sync_desc(self):
         name = self.backend_combo.currentData()
@@ -608,19 +616,18 @@ class SettingsTab(QWidget):
         status = backend.available() if backend else None
         text = backend.description if backend else ""
         if status and not status.available:
-            text += f"  (Unavailable: {status.reason})"
+            text += "  (" + tr("Unavailable: {reason}").format(reason=status.reason) + ")"
         self.backend_desc.setText(text)
 
     def download_presentmon(self):
         if not IS_WINDOWS:
             QMessageBox.information(
                 self, "PresentMon",
-                "PresentMon is only needed on Windows.\n"
-                "On Linux use the Vulkan layer, gamescope or mesa_gallium backends.",
+                tr("PresentMon is only needed on Windows.\nOn Linux use the Vulkan layer, gamescope or mesa_gallium backends."),
             )
             return
         self.download_pm.setEnabled(False)
-        self.download_pm.setText("Downloading...")
+        self.download_pm.setText(tr("Downloading..."))
         self._pm_worker = _PresentMonDownloader(self)
         self._pm_worker.ok.connect(self._pm_download_done)
         self._pm_worker.err.connect(self._pm_download_failed)
@@ -628,16 +635,16 @@ class SettingsTab(QWidget):
 
     def _pm_reset_button(self):
         self.download_pm.setEnabled(True)
-        self.download_pm.setText("Download PresentMon (Windows)...")
+        self.download_pm.setText(tr("Download PresentMon (Windows)..."))
 
     def _pm_download_done(self, path):
         self._pm_reset_button()
-        self.app.status.showMessage(f"PresentMon saved: {path}", 8000)
+        self.app.status.showMessage(tr("PresentMon saved: {path}").format(path=path), 8000)
         self.reload()
 
     def _pm_download_failed(self, message):
         self._pm_reset_button()
-        QMessageBox.warning(self, "PresentMon download failed", message)
+        QMessageBox.warning(self, tr("PresentMon download failed"), message)
 
     def apply(self):
         self.app.store.global_fps_backend = self.backend_combo.currentData() or "null"
@@ -647,7 +654,14 @@ class SettingsTab(QWidget):
         self.app.store.save()
         self.app.fps_manager.set_backend(self.app.store.global_fps_backend)
         self.app.refresh_overlay()
-        self.app.status.showMessage("Settings saved", 4000)
+        self.app.status.showMessage(tr("Settings saved"), 4000)
+        new_lang = self.language_combo.currentData()
+        if new_lang and new_lang != self.app.store.language:
+            self.app.store.language = new_lang
+            self.app.store.save()
+            set_language(new_lang)
+            self.app.rebuild_ui()
+            self.app.status.showMessage(tr("Settings saved"), 4000)
 
 
 class MainWindow(QMainWindow):
@@ -658,22 +672,15 @@ class MainWindow(QMainWindow):
         self.start_overlay_enabled = True
         self.auto_switch_enabled = True
 
+        set_language(self.store.language)
         self.setWindowTitle("Gamohud")
         self.resize(1040, 700)
 
-        self.tabs = QTabWidget()
-        self.dashboard = DashboardTab(self)
-        self.overlay_tab = OverlayTab(self)
-        self.apps_tab = AppsTab(self)
-        self.settings_tab = SettingsTab(self)
-        self.tabs.addTab(self.dashboard, "Dashboard")
-        self.tabs.addTab(self.overlay_tab, "Overlay Profiles")
-        self.tabs.addTab(self.apps_tab, "Applications")
-        self.tabs.addTab(self.settings_tab, "Settings")
-        self.setCentralWidget(self.tabs)
-
         self.overlay = None
         self._overlay_profile_name = None
+
+        self._build_tabs()
+
         if self.start_overlay_enabled:
             self.start_overlay()
 
@@ -683,7 +690,24 @@ class MainWindow(QMainWindow):
 
         self._build_tray()
         self.status = self.statusBar()
-        self.status.showMessage("Ready", 3000)
+        self.status.showMessage(tr("Ready"), 3000)
+
+    def _build_tabs(self):
+        self.tabs = QTabWidget()
+        self.dashboard = DashboardTab(self)
+        self.overlay_tab = OverlayTab(self)
+        self.apps_tab = AppsTab(self)
+        self.settings_tab = SettingsTab(self)
+        self.tabs.addTab(self.dashboard, tr("Dashboard"))
+        self.tabs.addTab(self.overlay_tab, tr("Overlay Profiles"))
+        self.tabs.addTab(self.apps_tab, tr("Applications"))
+        self.tabs.addTab(self.settings_tab, tr("Settings"))
+        self.setCentralWidget(self.tabs)
+
+    def rebuild_ui(self):
+        old = self.tabs
+        self._build_tabs()
+        old.deleteLater()
 
     def current_overlay_name(self):
         return self._overlay_profile_name or self.store.active_overlay
@@ -750,11 +774,11 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         menu = QMenu()
-        act_show = QAction("Show window", self)
+        act_show = QAction(tr("Show window"), self)
         act_show.triggered.connect(self.show_window)
-        act_overlay = QAction("Toggle overlay", self)
+        act_overlay = QAction(tr("Toggle overlay"), self)
         act_overlay.triggered.connect(self.toggle_overlay)
-        act_quit = QAction("Quit", self)
+        act_quit = QAction(tr("Quit"), self)
         act_quit.triggered.connect(QApplication.quit)
         menu.addAction(act_show)
         menu.addAction(act_overlay)
@@ -778,7 +802,7 @@ class MainWindow(QMainWindow):
         event.ignore()
         self.hide()
         if self.tray.isVisible():
-            self.tray.showMessage("Gamohud", "Still running in tray. Use Quit to exit.")
+            self.tray.showMessage("Gamohud", tr("Still running in tray. Use Quit to exit."))
 
 
 def main():
@@ -793,6 +817,9 @@ def main():
         pass
     app.aboutToQuit.connect(win.fps_manager.stop)
     win.show()
+    if win.overlay is not None:
+        QTimer.singleShot(0, win.overlay.raise_)
+        QTimer.singleShot(300, win.overlay.raise_)
     return app.exec()
 
 

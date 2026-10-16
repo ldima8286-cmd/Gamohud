@@ -110,17 +110,33 @@ class OverlayWindow(QWidget):
         self.timer.start(max(100, int(profile.refresh_ms)))
 
     # -- window / wayland -------------------------------------------------
-    def _apply_window_flags(self):
+    def _desired_flags(self):
         flags = (
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
             | Qt.Tool
             | Qt.WindowDoesNotAcceptFocus
         )
-        self.setWindowFlags(flags)
         if getattr(self.profile, "click_through", True):
-            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            self.setWindowFlag(Qt.WindowTransparentForInput, True)
+            flags |= Qt.WindowTransparentForInput
+        return flags
+
+    def _apply_window_flags(self):
+        """Only touch window flags when they actually change.
+
+        Calling setWindowFlags() on a visible window hides and re-maps it; on
+        Wayland the re-mapped surface can end up behind other windows, which is
+        what made the overlay "disappear" after saving/switching a profile.
+        """
+        flags = self._desired_flags()
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, getattr(self.profile, "click_through", True))
+        if self.windowFlags() == flags:
+            return
+        was_visible = self.isVisible()
+        self.setWindowFlags(flags)
+        if was_visible:
+            self.show()
+            self.raise_()
 
     def _try_layer_shell(self) -> bool:
         """Best-effort: real always-on-top over fullscreen needs a layer-shell
@@ -193,6 +209,7 @@ class OverlayWindow(QWidget):
                 self.spark.push(fps)
         self.adjustSize()
         self._reposition()
+        self.raise_()
 
     def _reposition(self):
         screen = QApplication.primaryScreen()
@@ -229,7 +246,9 @@ class OverlayWindow(QWidget):
         self._build_rows()
         self._apply_style()
         self.refresh()
-        self.show()
+        if not self.isVisible():
+            self.show()
+        self.raise_()
 
     def apply_profile(self, profile: OverlayProfile):
         self.set_profile(profile)
