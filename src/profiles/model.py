@@ -58,6 +58,7 @@ class AppProfile:
     cwd: str | None = None
     args: str = ""
     executable: str | None = None
+    process_name: str | None = None
     gallium_hud: str | None = None
     gamescope_args: list[str] | None = None
     gamescope_stats_path: str | None = None

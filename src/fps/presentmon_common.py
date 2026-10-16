@@ -86,6 +86,68 @@ def find_presentmon() -> Path | None:
     return None
 
 
+def default_presentmon_dir() -> Path:
+    """Directory where the downloader places PresentMon.exe."""
+    here = Path(__file__).resolve()
+    if not getattr(sys, "frozen", False) and len(here.parents) >= 3:
+        return here.parents[2] / "tools" / "presentmon"
+    try:
+        from ..platform_utils import config_dir
+
+        return config_dir("gamohud") / "presentmon"
+    except Exception:
+        return Path.home() / ".gamohud" / "presentmon"
+
+
+_PRESENTMON_RELEASES_API = "https://api.github.com/repos/GameTechDev/PresentMon/releases"
+
+
+def _http_get(url: str, timeout: float = 60.0) -> bytes:
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"User-Agent": "gamohud-presentmon-fetch"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def download_presentmon(version: str = "latest", arch: str = "x64", dest_dir=None, log=None) -> Path:
+    """Download the PresentMon console executable and return its path.
+
+    PresentMon is MIT-licensed (c) Intel Corporation.
+    """
+    import json
+
+    emit = log or (lambda *_args, **_kwargs: None)
+    url = (
+        f"{_PRESENTMON_RELEASES_API}/latest"
+        if version == "latest"
+        else f"{_PRESENTMON_RELEASES_API}/tags/{version}"
+    )
+    emit(f"Querying {url} ...")
+    release = json.loads(_http_get(url))
+
+    suffix = f"-{arch}.exe"
+    asset = None
+    for item in release.get("assets", []):
+        name = item.get("name", "")
+        if name.startswith("PresentMon-") and name.endswith(suffix):
+            asset = item
+            break
+    if asset is None:
+        raise RuntimeError(f"no PresentMon-*-{arch}.exe asset in this release")
+
+    target_dir = Path(dest_dir) if dest_dir else default_presentmon_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "PresentMon.exe"
+    emit(f"Downloading {asset['name']} ...")
+    data = _http_get(asset["browser_download_url"], timeout=120.0)
+    tmp = target.with_name(target.name + ".part")
+    tmp.write_bytes(data)
+    os.replace(tmp, target)
+    emit(f"Saved {target} ({len(data)} bytes)")
+    return target
+
+
 def exe_basename(value: str | None) -> str | None:
     """Return the executable file name from a command line / path string."""
     if not value:
@@ -111,6 +173,9 @@ def target_process_name(command, profile) -> str | None:
 
     candidates: list[str | None] = []
     if profile is not None:
+        pname = getattr(profile, "process_name", None)
+        if pname:
+            return str(pname).strip()
         candidates.append(getattr(profile, "executable", None))
     if command:
         candidates.extend(reversed([str(c) for c in command]))

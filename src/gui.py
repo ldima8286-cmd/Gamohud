@@ -1,7 +1,7 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QColor, QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
-from src.platform_utils import open_uri_command, split_args
+from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
 from src.metrics import (
     METRICS,
     collect_all,
@@ -339,6 +339,9 @@ class AppsTab(QWidget):
         bf.addRow("Match processes", self.match)
         self.executable = QLineEdit()
         bf.addRow("Executable / command", self.executable)
+        self.process_name = QLineEdit()
+        self.process_name.setPlaceholderText("optional, for PresentMon: game exe name, e.g. game.exe")
+        bf.addRow("Game process name", self.process_name)
         self.args = QLineEdit()
         bf.addRow("Arguments", self.args)
         self.cwd = QLineEdit()
@@ -430,6 +433,7 @@ class AppsTab(QWidget):
         self.name.setText(profile.name)
         self.match.setText(", ".join(profile.match))
         self.executable.setText(profile.executable or "")
+        self.process_name.setText(profile.process_name or "")
         self.args.setText(profile.args or "")
         self.cwd.setText(profile.cwd or "")
         self.overlay_combo.setCurrentText(profile.overlay or "")
@@ -454,6 +458,7 @@ class AppsTab(QWidget):
             name=self.name.text().strip() or "unnamed",
             match=[m.strip() for m in self.match.text().split(",") if m.strip()],
             executable=self.executable.text().strip() or None,
+            process_name=self.process_name.text().strip() or None,
             args=self.args.text().strip(),
             cwd=self.cwd.text().strip() or None,
             overlay=self.overlay_combo.currentText() or None,
@@ -530,6 +535,20 @@ class AppsTab(QWidget):
             QMessageBox.warning(self, "Launch failed", str(e))
 
 
+class _PresentMonDownloader(QThread):
+    ok = Signal(str)
+    err = Signal(str)
+
+    def run(self):
+        try:
+            from src.fps.presentmon_common import download_presentmon
+
+            path = download_presentmon(log=lambda _m: None)
+            self.ok.emit(str(path))
+        except Exception as exc:  # noqa: BLE001
+            self.err.emit(str(exc))
+
+
 class SettingsTab(QWidget):
     def __init__(self, app):
         super().__init__()
@@ -543,6 +562,10 @@ class SettingsTab(QWidget):
         self.backend_desc = QLabel("")
         self.backend_desc.setWordWrap(True)
         bf.addRow(self.backend_desc)
+        self.download_pm = QPushButton("Download PresentMon (Windows)...")
+        self.download_pm.clicked.connect(self.download_presentmon)
+        bf.addRow(self.download_pm)
+        self._pm_worker = None
         root.addWidget(backend)
 
         general = QGroupBox("General")
@@ -587,6 +610,34 @@ class SettingsTab(QWidget):
         if status and not status.available:
             text += f"  (Unavailable: {status.reason})"
         self.backend_desc.setText(text)
+
+    def download_presentmon(self):
+        if not IS_WINDOWS:
+            QMessageBox.information(
+                self, "PresentMon",
+                "PresentMon is only needed on Windows.\n"
+                "On Linux use the Vulkan layer, gamescope or mesa_gallium backends.",
+            )
+            return
+        self.download_pm.setEnabled(False)
+        self.download_pm.setText("Downloading...")
+        self._pm_worker = _PresentMonDownloader(self)
+        self._pm_worker.ok.connect(self._pm_download_done)
+        self._pm_worker.err.connect(self._pm_download_failed)
+        self._pm_worker.start()
+
+    def _pm_reset_button(self):
+        self.download_pm.setEnabled(True)
+        self.download_pm.setText("Download PresentMon (Windows)...")
+
+    def _pm_download_done(self, path):
+        self._pm_reset_button()
+        self.app.status.showMessage(f"PresentMon saved: {path}", 8000)
+        self.reload()
+
+    def _pm_download_failed(self, message):
+        self._pm_reset_button()
+        QMessageBox.warning(self, "PresentMon download failed", message)
 
     def apply(self):
         self.app.store.global_fps_backend = self.backend_combo.currentData() or "null"
