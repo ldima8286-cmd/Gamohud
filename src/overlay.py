@@ -1,106 +1,196 @@
-from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QColor, QFont, QPainter
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QGraphicsDropShadowEffect
+"""Standalone, profile-driven always-on-top overlay window (no MangoHud)."""
+from __future__ import annotations
 
-from src.monitor import get_stats
-from src.fps import get_fps
+import os
+from collections import deque
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QPointF
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsDropShadowEffect,
+    QGridLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.metrics import format_metric, metric_label, metric_unit
+from src.profiles import OverlayProfile
+
+
+def _hex_to_rgb(value, default=(16, 16, 20)):
+    v = (value or "").lstrip("#")
+    if len(v) == 3:
+        v = "".join(c * 2 for c in v)
+    try:
+        return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
+    except Exception:
+        return default
+
+
+def _rgba(value, alpha, default=(16, 16, 20)) -> str:
+    r, g, b = _hex_to_rgb(value, default)
+    a = int(max(0.0, min(1.0, alpha)) * 255)
+    return f"rgba({r},{g},{b},{a})"
+
+
+class Sparkline(QWidget):
+    def __init__(self, points: int = 60, color: str = "#7CFC00", parent=None):
+        super().__init__(parent)
+        self._values = deque([0.0] * points, maxlen=points)
+        self._color = color
+        self.setMinimumHeight(28)
+
+    def set_color(self, color: str):
+        self._color = color
+        self.update()
+
+    def push(self, value):
+        self._values.append(float(value or 0.0))
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._values:
+            return
+        w, h = self.width(), self.height()
+        vmax = max(max(self._values), 60.0)
+        n = len(self._values)
+        poly = QPolygonF()
+        for i, val in enumerate(self._values):
+            x = w * i / max(1, n - 1)
+            y = h - (val / vmax) * (h - 2) - 1
+            poly.append(QPointF(x, y))
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(self._color))
+        pen.setWidthF(1.6)
+        painter.setPen(pen)
+        painter.drawPolyline(poly)
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, settings):
+    def __init__(self, profile: OverlayProfile, data_provider):
         super().__init__(None)
-        self.settings = settings
-        self.setWindowFlags(
-            Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-            | Qt.Tool
-            | Qt.WindowDoesNotAcceptFocus
-        )
+        self._data_provider = data_provider
+        self.profile = profile
+        self._rows: dict[str, tuple[QLabel, QLabel]] = {}
+
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        if settings.click_through:
-            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            self.setWindowFlag(Qt.WindowTransparentForInput, True)
-
-        self.labels = {}
-        for key in ("title", "fps", "cpu", "gpu", "vram", "ram", "temp"):
-            lb = QLabel("")
-            lb.setTextFormat(Qt.PlainText)
-            self.labels[key] = lb
+        self._apply_window_flags()
 
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(12)
+        shadow.setBlurRadius(14)
         shadow.setColor(QColor(0, 0, 0, 200))
         shadow.setOffset(0, 1)
 
         self.container = QWidget(self)
         self.container.setObjectName("hud")
-        lay = QVBoxLayout(self.container)
-        lay.setContentsMargins(12, 8, 12, 8)
-        lay.setSpacing(2)
-        for key in ("title", "fps", "cpu", "gpu", "vram", "ram", "temp"):
-            lay.addWidget(self.labels[key])
         self.container.setGraphicsEffect(shadow)
+
+        self.grid = QGridLayout(self.container)
+        self.grid.setContentsMargins(14, 10, 14, 10)
+        self.grid.setHorizontalSpacing(14)
+        self.grid.setVerticalSpacing(3)
+
+        self.spark = Sparkline(color=profile.accent_color)
+        self.spark.setVisible(bool(profile.graph))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.container)
 
+        self._build_rows()
         self._apply_style()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(max(100, int(settings.refresh_ms)))
+        self.timer.start(max(100, int(profile.refresh_ms)))
+
+    # -- window / wayland -------------------------------------------------
+    def _apply_window_flags(self):
+        flags = (
+            Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+            | Qt.Tool
+            | Qt.WindowDoesNotAcceptFocus
+        )
+        self.setWindowFlags(flags)
+        if getattr(self.profile, "click_through", True):
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self.setWindowFlag(Qt.WindowTransparentForInput, True)
+
+    def _try_layer_shell(self) -> bool:
+        """Best-effort: real always-on-top over fullscreen needs a layer-shell
+        surface. PySide6 has no layer-shell binding, so we only succeed if a
+        helper is present; otherwise the always-on-top window is the fallback."""
+        return False
+
+    # -- layout -----------------------------------------------------------
+    def _build_rows(self):
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._rows.clear()
+
+        self.grid.addWidget(self.spark, 0, 0, 1, 2)
+        row = 1
+        for key in self.profile.metrics:
+            name = QLabel(metric_label(key))
+            name.setTextFormat(Qt.PlainText)
+            value = QLabel("--")
+            value.setTextFormat(Qt.PlainText)
+            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.grid.addWidget(name, row, 0)
+            self.grid.addWidget(value, row, 1)
+            self._rows[key] = (name, value)
+            row += 1
 
     def _apply_style(self):
-        s = self.settings
-        self.labels["title"].setText("GAMOHUD")
-        self.labels["title"].setStyleSheet(
-            f"color: {s.accent_color}; font-weight: 700; letter-spacing: 1px;"
-            f" font-size: {s.font_size}px;"
-        )
-        for key in ("fps", "cpu", "gpu", "vram", "ram", "temp"):
-            self.labels[key].setStyleSheet(
-                f"color: {s.font_color}; font-size: {s.font_size}px;"
+        p = self.profile
+        weight = "700" if p.font_bold else "400"
+        for key, (name, value) in self._rows.items():
+            name.setStyleSheet(
+                f"color: {p.label_color}; font-size: {p.font_size}px; font-weight: {weight};"
+                f" letter-spacing: 1px;"
             )
-        r, g, b = _hex_to_rgb(s.bg_color)
-        a = int(max(0.0, min(1.0, s.opacity)) * 255)
+            value.setStyleSheet(
+                f"color: {p.fg_color}; font-size: {p.font_size}px; font-weight: {weight};"
+            )
         self.container.setStyleSheet(
-            f"#hud {{ background: rgba({r},{g},{b},{a}); border-radius: 10px;"
-            f" border: 1px solid rgba({r},{g},{b},255); }}"
+            f"#hud {{ background: {_rgba(p.bg_color, p.bg_opacity)};"
+            f" border-radius: {p.border_radius}px;"
+            f" border: 1px solid {_rgba(p.bg_color, min(1.0, p.bg_opacity + 0.3))}; }}"
         )
-        f = QFont("Monospace")
+        f = QFont(p.font_family or "Monospace")
         f.setStyleHint(QFont.Monospace)
-        f.setPointSize(max(7, int(s.font_size * 0.8)))
+        f.setPointSize(max(7, int(p.font_size * 0.8)))
         self.container.setFont(f)
+        self.spark.setVisible(bool(p.graph))
+        self.spark.set_color(p.accent_color)
+        self.adjustSize()
 
+    # -- data -------------------------------------------------------------
     def refresh(self):
-        st = get_stats()
-        s = self.settings
-        fps = get_fps(s)
-        self.labels["fps"].setText(f"FPS    {fps if fps is not None else '--'}")
-        self.labels["cpu"].setText(f"CPU    {st['cpu']}%")
-        gl = st.get("gpu_load")
-        self.labels["gpu"].setText(f"GPU    {gl}%" if gl is not None else "GPU    N/A")
-        vu, vt = st.get("vram_used"), st.get("vram_total")
-        if vu is not None and vt is not None:
-            self.labels["vram"].setText(f"VRAM   {vu}/{vt} GB")
-        else:
-            self.labels["vram"].setText("VRAM   N/A")
-        self.labels["ram"].setText(f"RAM    {st['ram_used']}/{st['ram_total']} GB")
-        t = st.get("temp")
-        self.labels["temp"].setText(f"TEMP   {t}\u00b0C" if t is not None else "TEMP   N/A")
-
-        for key, vis in (
-            ("fps", s.show_fps),
-            ("cpu", s.show_cpu),
-            ("gpu", s.show_gpu),
-            ("vram", s.show_vram),
-            ("ram", s.show_ram),
-            ("temp", s.show_temp),
-        ):
-            self.labels[key].setVisible(bool(vis))
-
+        try:
+            data = self._data_provider() or {}
+        except Exception:
+            data = {}
+        for key, (_name, value) in self._rows.items():
+            text = format_metric(key, data.get(key))
+            if text is None:
+                value.setText("--")
+            else:
+                unit = metric_unit(key)
+                value.setText(f"{text} {unit}".strip())
+        if self.profile.graph:
+            fps = data.get("fps")
+            if fps is not None:
+                self.spark.push(fps)
         self.adjustSize()
         self._reposition()
 
@@ -111,37 +201,35 @@ class OverlayWindow(QWidget):
         geo = screen.availableGeometry()
         self.adjustSize()
         w, h = self.width(), self.height()
-        m = self.settings.margin
-        pos = self.settings.position
-        if pos == "top-left":
-            x, y = geo.left() + m, geo.top() + m
-        elif pos == "top-right":
-            x, y = geo.right() - w - m, geo.top() + m
-        elif pos == "bottom-left":
-            x, y = geo.left() + m, geo.bottom() - h - m
-        elif pos == "bottom-right":
-            x, y = geo.right() - w - m, geo.bottom() - h - m
-        elif pos == "center":
-            x, y = geo.center().x() - w // 2, geo.center().y() - h // 2
+        m = self.profile.margin
+        pos = self.profile.position
+        if pos == "custom":
+            x, y = geo.left() + self.profile.x, geo.top() + self.profile.y
         else:
-            x, y = geo.right() - w - m, geo.top() + m
+            cols = {
+                "left": geo.left() + m,
+                "center": geo.center().x() - w // 2,
+                "right": geo.right() - w - m,
+            }
+            rows = {
+                "top": geo.top() + m,
+                "middle": geo.center().y() - h // 2,
+                "bottom": geo.bottom() - h - m,
+            }
+            vert, _, horiz = pos.partition("-")
+            x = cols.get(horiz or "left", cols["left"])
+            y = rows.get(vert, rows["top"])
         self.move(x, y)
 
-    def apply_settings(self, settings):
-        self.settings = settings
-        self.timer.setInterval(max(100, int(settings.refresh_ms)))
-        self.setWindowFlag(Qt.WindowTransparentForInput, bool(settings.click_through))
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, bool(settings.click_through))
+    # -- public -----------------------------------------------------------
+    def set_profile(self, profile: OverlayProfile):
+        self.profile = profile
+        self.timer.setInterval(max(100, int(profile.refresh_ms)))
+        self._apply_window_flags()
+        self._build_rows()
         self._apply_style()
         self.refresh()
         self.show()
 
-
-def _hex_to_rgb(value):
-    v = value.lstrip("#")
-    if len(v) == 3:
-        v = "".join(c * 2 for c in v)
-    try:
-        return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
-    except Exception:
-        return 16, 16, 20
+    def apply_profile(self, profile: OverlayProfile):
+        self.set_profile(profile)

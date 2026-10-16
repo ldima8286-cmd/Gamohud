@@ -25,22 +25,35 @@ exec "$APP_DIR/gamohud-gui/gamohud-gui" "\$@"
 EOF
 chmod +x "$BIN_DIR/gamohud-gui"
 
+cat > "$BIN_DIR/gamohud-run" <<EOF
+#!/bin/sh
+exec "$APP_DIR/gamohud-gui/gamohud-gui" --run "\$@"
+EOF
+chmod +x "$BIN_DIR/gamohud-run"
+
+cat > "$BIN_DIR/gamohud" <<EOF
+#!/bin/sh
+exec "$APP_DIR/gamohud-gui/gamohud-gui" "\$@"
+EOF
+chmod +x "$BIN_DIR/gamohud"
+
 cat > "$DESKTOP_DIR/gamohud.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Gamohud
 GenericName=Performance Overlay
-Comment=System monitor and FPS overlay inspired by MangoHud
+Comment=Standalone system monitor and FPS overlay (no MangoHud required)
 Exec=$BIN_DIR/gamohud-gui
 Icon=gamohud
 Terminal=false
 Categories=Utility;Game;
-Keywords=overlay;fps;monitor;mangohud;
+Keywords=overlay;fps;monitor;gamohud;
 StartupNotify=true
 EOF
 chmod +x "$DESKTOP_DIR/gamohud.desktop"
 
 echo "Installed:"
 echo "  binary : $BIN_DIR/gamohud-gui"
+echo "  runner : $BIN_DIR/gamohud-run"
 echo "  entry  : $DESKTOP_DIR/gamohud.desktop"
 echo "Run 'gamohud-gui' (ensure $BIN_DIR is in PATH)."

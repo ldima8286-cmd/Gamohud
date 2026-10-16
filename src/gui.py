@@ -1,11 +1,9 @@
 import os
 import sys
 import shlex
-import subprocess
-from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QAction
+from PySide6.QtGui import QColor, QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -31,26 +29,29 @@ from PySide6.QtWidgets import (
     QMenu,
     QGroupBox,
     QFormLayout,
+    QScrollArea,
 )
 
-from src.monitor import get_stats
-from src.settings import Settings, set_mangohud_logging
-from src.games import all_games, save_manual_game
-from src.game_bindings import load_bindings, save_bindings, Binding, get_binding
-from src.gamemode import load_profiles
+from src.metrics import (
+    METRICS,
+    collect_all,
+    format_metric,
+    metric_label,
+    metric_unit,
+)
+from src.fps import FPSManager
 from src.overlay import OverlayWindow
-
-MANGOHUD_DIR = Path.home() / ".config" / "MangoHud"
-
-
-def _hex_to_rgb(value):
-    v = value.lstrip("#")
-    if len(v) == 3:
-        v = "".join(c * 2 for c in v)
-    try:
-        return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
-    except Exception:
-        return 16, 16, 20
+from src.profiles import (
+    POSITIONS,
+    AppProfile,
+    OverlayProfile,
+    ProfileStore,
+    default_overlay_profiles,
+    find_profile,
+    running_process_names,
+)
+from src.launcher import launch as launch_profile
+from src import games as games_mod
 
 
 class DashboardTab(QWidget):
@@ -58,447 +59,633 @@ class DashboardTab(QWidget):
         super().__init__()
         self.app = app
         self.labels = {}
-        lay = QVBoxLayout(self)
-        for key, text in (
-            ("cpu", "CPU"),
-            ("load1", "Load1"),
-            ("ram", "RAM"),
-            ("swap", "Swap"),
-            ("temp", "CPU Temp"),
-            ("gpu_load", "GPU Load"),
-            ("gpu_temp", "GPU Temp"),
-            ("vram", "VRAM"),
-            ("fps", "FPS"),
-        ):
-            lb = QLabel(f"{text}: --")
-            lay.addWidget(lb)
+        root = QVBoxLayout(self)
+        box = QGroupBox("Live metrics")
+        form = QFormLayout(box)
+        for key in METRICS:
+            lb = QLabel("--")
+            form.addRow(metric_label(key), lb)
             self.labels[key] = lb
-        lay.addStretch(1)
+        root.addWidget(box)
+        self.info = QLabel("")
+        root.addWidget(self.info)
+        root.addStretch(1)
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update)
+        self.timer.timeout.connect(self.refresh)
         self.timer.start(700)
 
-    def update(self):
-        st = get_stats()
-        self.labels["cpu"].setText(f"CPU: {st['cpu']}%")
-        self.labels["load1"].setText(f"Load1: {st.get('load1', '-')}")
-        self.labels["ram"].setText(f"RAM: {st['ram_used']}/{st['ram_total']} GB ({st['ram_percent']}%)")
-        self.labels["swap"].setText(f"Swap: {st['swap_percent']}%")
-        t = st.get("temp")
-        self.labels["temp"].setText(f"CPU Temp: {t}\u00b0C" if t is not None else "CPU Temp: N/A")
-        gl = st.get("gpu_load")
-        self.labels["gpu_load"].setText(f"GPU Load: {gl}%" if gl is not None else "GPU Load: N/A")
-        gt = st.get("gpu_temp")
-        self.labels["gpu_temp"].setText(f"GPU Temp: {gt}\u00b0C" if gt is not None else "GPU Temp: N/A")
-        vu, vt = st.get("vram_used"), st.get("vram_total")
-        if vu is not None and vt is not None:
-            self.labels["vram"].setText(f"VRAM: {vu}/{vt} GB")
-        elif vu is not None:
-            self.labels["vram"].setText(f"VRAM: {vu} GB")
-        else:
-            self.labels["vram"].setText("VRAM: N/A")
-        try:
-            from src.fps import get_fps
-            fps = get_fps(self.app.settings)
-            self.labels["fps"].setText(f"FPS: {fps}" if fps is not None else "FPS: --")
-        except Exception:
-            self.labels["fps"].setText("FPS: --")
+    def refresh(self):
+        data = collect_all(self.app.fps_manager.read())
+        for key, lb in self.labels.items():
+            text = format_metric(key, data.get(key))
+            lb.setText(f"{text} {metric_unit(key)}".strip() if text is not None else "N/A")
+        self.info.setText(
+            f"FPS backend: {self.app.fps_manager.backend.label}  |  "
+            f"Overlay profile: {self.app.current_overlay_name()}"
+        )
 
 
-class PresetsTab(QWidget):
+def _color_button(initial, parent=None):
+    btn = QPushButton(initial or "#000000")
+    btn._value = initial or "#000000"
+
+    def pick():
+        c = QColorDialog.getColor(QColor(btn._value), parent or btn)
+        if c.isValid():
+            btn._value = c.name()
+            btn.setText(c.name())
+
+    btn.clicked.connect(pick)
+    return btn
+
+
+class OverlayTab(QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
         self.current = None
-        root = QVBoxLayout(self)
-        top = QHBoxLayout()
-        self.filter = QLineEdit()
-        self.filter.setPlaceholderText("Filter presets...")
-        self.filter.textChanged.connect(self.reload)
-        top.addWidget(self.filter)
-        root.addLayout(top)
+        root = QHBoxLayout(self)
 
-        mid = QHBoxLayout()
+        left = QVBoxLayout()
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self.on_select)
-        mid.addWidget(self.list, 1)
-        self.editor = QPlainTextEdit()
-        mid.addWidget(self.editor, 2)
-        root.addLayout(mid, 1)
-
-        btns = QHBoxLayout()
+        left.addWidget(self.list, 1)
+        row = QHBoxLayout()
         for text, slot in (
-            ("Apply to MangoHud.conf", self.apply),
-            ("Save", self.save_current),
-            ("New from current", self.new_from_current),
+            ("New", self.new),
+            ("Duplicate", self.duplicate),
             ("Delete", self.delete),
+            ("Set active", self.set_active),
         ):
             b = QPushButton(text)
             b.clicked.connect(slot)
-            btns.addWidget(b)
-        root.addLayout(btns)
+            row.addWidget(b)
+        left.addLayout(row)
+        root.addLayout(left, 1)
+
+        right = QScrollArea()
+        right.setWidgetResizable(True)
+        holder = QWidget()
+        rl = QVBoxLayout(holder)
+
+        appearance = QGroupBox("Appearance")
+        af = QFormLayout(appearance)
+        self.name = QLineEdit()
+        af.addRow("Name", self.name)
+        self.position = QComboBox()
+        self.position.addItems(POSITIONS)
+        af.addRow("Position", self.position)
+        self.x = QSpinBox(); self.x.setRange(0, 10000)
+        self.y = QSpinBox(); self.y.setRange(0, 10000)
+        xy = QHBoxLayout(); xy.addWidget(self.x); xy.addWidget(self.y)
+        xw = QWidget(); xw.setLayout(xy)
+        af.addRow("Custom x / y", xw)
+        self.margin = QSpinBox(); self.margin.setRange(0, 500)
+        af.addRow("Margin", self.margin)
+        self.font_family = QLineEdit()
+        af.addRow("Font", self.font_family)
+        self.font_size = QSpinBox(); self.font_size.setRange(7, 48)
+        af.addRow("Font size", self.font_size)
+        self.font_bold = QCheckBox("Bold")
+        af.addRow(self.font_bold)
+        self.opacity = QDoubleSpinBox(); self.opacity.setRange(0.05, 1.0); self.opacity.setSingleStep(0.05)
+        af.addRow("Opacity", self.opacity)
+        self.bg_opacity = QDoubleSpinBox(); self.bg_opacity.setRange(0.0, 1.0); self.bg_opacity.setSingleStep(0.05)
+        af.addRow("Background opacity", self.bg_opacity)
+        self.border_radius = QSpinBox(); self.border_radius.setRange(0, 40)
+        af.addRow("Corner radius", self.border_radius)
+        self.refresh_ms = QSpinBox(); self.refresh_ms.setRange(100, 5000); self.refresh_ms.setSingleStep(100)
+        af.addRow("Refresh (ms)", self.refresh_ms)
+        self.click_through = QCheckBox("Click-through (ignore mouse)")
+        af.addRow(self.click_through)
+        self.graph = QCheckBox("Show FPS graph")
+        af.addRow(self.graph)
+        self.fg_btn = _color_button("#ffffff", self)
+        self.label_btn = _color_button("#9ad1ff", self)
+        self.accent_btn = _color_button("#7CFC00", self)
+        self.bg_btn = _color_button("#000000", self)
+        af.addRow("Value color", self.fg_btn)
+        af.addRow("Label color", self.label_btn)
+        af.addRow("Accent color", self.accent_btn)
+        af.addRow("Background color", self.bg_btn)
+        rl.addWidget(appearance)
+
+        metrics = QGroupBox("Metrics")
+        mf = QFormLayout(metrics)
+        self.checks = {}
+        for key in METRICS:
+            cb = QCheckBox(metric_label(key))
+            self.checks[key] = cb
+            mf.addRow(cb)
+        rl.addWidget(metrics)
+
+        btn_row = QHBoxLayout()
+        save = QPushButton("Save")
+        save.clicked.connect(self.save)
+        preview = QPushButton("Apply / Preview")
+        preview.clicked.connect(self.preview)
+        btn_row.addWidget(save)
+        btn_row.addWidget(preview)
+        rl.addLayout(btn_row)
+        rl.addStretch(1)
+        right.setWidget(holder)
+        root.addWidget(right, 3)
+
         self.reload()
 
     def reload(self):
         self.list.clear()
-        filt = self.filter.text().lower().strip()
-        MANGOHUD_DIR.mkdir(parents=True, exist_ok=True)
-        for f in sorted(MANGOHUD_DIR.glob("*.conf")):
-            if not filt or filt in f.name.lower():
-                it = QListWidgetItem(f.name)
-                it.setData(Qt.UserRole, str(f))
-                self.list.addItem(it)
+        for p in self.app.store.overlay_profiles:
+            tag = " (active)" if p.name == self.app.store.active_overlay else ""
+            it = QListWidgetItem(f"{p.name}{tag}")
+            it.setData(Qt.UserRole, p.name)
+            self.list.addItem(it)
 
     def on_select(self, row):
         if row < 0:
             self.current = None
             return
-        it = self.list.item(row)
-        self.current = Path(it.data(Qt.UserRole))
-        try:
-            self.editor.setPlainText(self.current.read_text(encoding="utf-8", errors="replace"))
-        except Exception:
-            self.editor.setPlainText("")
+        name = self.list.item(row).data(Qt.UserRole)
+        profile = self.app.store.get_overlay(name)
+        self.current = profile
+        if profile is None:
+            return
+        self.name.setText(profile.name)
+        self.position.setCurrentText(profile.position)
+        self.x.setValue(profile.x)
+        self.y.setValue(profile.y)
+        self.margin.setValue(profile.margin)
+        self.font_family.setText(profile.font_family)
+        self.font_size.setValue(profile.font_size)
+        self.font_bold.setChecked(profile.font_bold)
+        self.opacity.setValue(profile.opacity)
+        self.bg_opacity.setValue(profile.bg_opacity)
+        self.border_radius.setValue(profile.border_radius)
+        self.refresh_ms.setValue(profile.refresh_ms)
+        self.click_through.setChecked(profile.click_through)
+        self.graph.setChecked(profile.graph)
+        self.fg_btn._value = profile.fg_color; self.fg_btn.setText(profile.fg_color)
+        self.label_btn._value = profile.label_color; self.label_btn.setText(profile.label_color)
+        self.accent_btn._value = profile.accent_color; self.accent_btn.setText(profile.accent_color)
+        self.bg_btn._value = profile.bg_color; self.bg_btn.setText(profile.bg_color)
+        for key, cb in self.checks.items():
+            cb.setChecked(key in profile.metrics)
 
-    def apply(self):
-        try:
-            from src.restore import backup_conf
-            backup_conf()
-            target = MANGOHUD_DIR / "MangoHud.conf"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(self.editor.toPlainText(), encoding="utf-8")
-            self.app.status.showMessage("Applied to MangoHud.conf (backup saved)", 4000)
-        except Exception as e:
-            self.app.status.showMessage(f"Error: {e}", 6000)
+    def _collect(self) -> OverlayProfile:
+        metrics = [k for k in METRICS if self.checks[k].isChecked()]
+        return OverlayProfile(
+            name=self.name.text().strip() or "unnamed",
+            position=self.position.currentText(),
+            x=self.x.value(), y=self.y.value(), margin=self.margin.value(),
+            opacity=self.opacity.value(),
+            font_family=self.font_family.text().strip() or "monospace",
+            font_size=self.font_size.value(), font_bold=self.font_bold.isChecked(),
+            fg_color=self.fg_btn._value, label_color=self.label_btn._value,
+            accent_color=self.accent_btn._value, bg_color=self.bg_btn._value,
+            bg_opacity=self.bg_opacity.value(), border_radius=self.border_radius.value(),
+            click_through=self.click_through.isChecked(),
+            refresh_ms=self.refresh_ms.value(), graph=self.graph.isChecked(),
+            metrics=metrics,
+        )
 
-    def save_current(self):
+    def save(self):
         if not self.current:
             return
-        try:
-            self.current.write_text(self.editor.toPlainText(), encoding="utf-8")
-            self.app.status.showMessage(f"Saved {self.current.name}", 4000)
-        except Exception as e:
-            self.app.status.showMessage(f"Error: {e}", 6000)
+        new = self._collect()
+        if new.name != self.current.name:
+            if self.app.store.get_overlay(new.name):
+                QMessageBox.warning(self, "Save", "A profile with that name exists.")
+                return
+            self.app.store.delete_overlay(self.current.name)
+        self.app.store.upsert_overlay(new)
+        self.app.store.save()
+        self.reload()
+        self.app.refresh_overlay()
+        self.app.status.showMessage(f"Saved overlay profile '{new.name}'", 4000)
 
-    def new_from_current(self):
-        name, ok = QInputDialog.getText(self, "New preset", "File name (.conf):")
-        if not ok or not name.strip():
+    def preview(self):
+        if not self.current:
             return
-        if not name.endswith(".conf"):
-            name += ".conf"
-        p = MANGOHUD_DIR / name
-        try:
-            p.write_text(self.editor.toPlainText(), encoding="utf-8")
-            self.reload()
-        except Exception as e:
-            self.app.status.showMessage(f"Error: {e}", 6000)
+        self.app.preview_overlay(self._collect())
+
+    def new(self):
+        p = OverlayProfile(name="new-profile")
+        self.app.store.upsert_overlay(p)
+        self.app.store.save()
+        self.reload()
+
+    def duplicate(self):
+        if not self.current:
+            return
+        data = self.current.to_dict()
+        data["name"] = self.current.name + "-copy"
+        self.app.store.upsert_overlay(OverlayProfile.from_dict(data))
+        self.app.store.save()
+        self.reload()
 
     def delete(self):
         if not self.current:
             return
-        if QMessageBox.question(self, "Delete", f"Delete {self.current.name}?") != QMessageBox.Yes:
+        if QMessageBox.question(self, "Delete", f"Delete '{self.current.name}'?") != QMessageBox.Yes:
             return
-        try:
-            self.current.unlink()
-            self.reload()
-        except Exception as e:
-            self.app.status.showMessage(f"Error: {e}", 6000)
+        self.app.store.delete_overlay(self.current.name)
+        self.app.store.save()
+        self.reload()
+        self.app.refresh_overlay()
+
+    def set_active(self):
+        if not self.current:
+            return
+        self.app.store.active_overlay = self.current.name
+        self.app.store.save()
+        self.reload()
+        self.app.refresh_overlay()
 
 
-class GamesTab(QWidget):
+class AppsTab(QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        root = QVBoxLayout(self)
-        top = QHBoxLayout()
-        refresh = QPushButton("Refresh")
-        refresh.clicked.connect(self.reload)
-        top.addWidget(refresh)
-        add = QPushButton("Add manual game")
-        add.clicked.connect(self.add_manual)
-        top.addWidget(add)
-        top.addStretch(1)
-        top.addWidget(QLabel("Preset:"))
-        self.preset_combo = QComboBox()
-        top.addWidget(self.preset_combo)
-        top.addWidget(QLabel("Game Mode:"))
-        self.gm_combo = QComboBox()
-        top.addWidget(self.gm_combo)
-        root.addLayout(top)
+        self.current = None
+        root = QHBoxLayout(self)
 
+        left = QVBoxLayout()
         self.list = QListWidget()
-        self.list.itemDoubleClicked.connect(lambda _: self.launch(False))
-        root.addWidget(self.list, 1)
-
-        btns = QHBoxLayout()
+        self.list.currentRowChanged.connect(self.on_select)
+        left.addWidget(self.list, 1)
+        row = QHBoxLayout()
         for text, slot in (
-            ("Launch (one click)", lambda: self.launch(False)),
-            ("Launch + Game Mode", lambda: self.launch(True)),
-            ("Bind preset", self.bind),
+            ("New", self.new),
+            ("Delete", self.delete),
+            ("From running process", self.from_running),
         ):
             b = QPushButton(text)
             b.clicked.connect(slot)
-            btns.addWidget(b)
-        root.addLayout(btns)
+            row.addWidget(b)
+        left.addLayout(row)
+        root.addLayout(left, 1)
+
+        right = QScrollArea()
+        right.setWidgetResizable(True)
+        holder = QWidget()
+        rl = QVBoxLayout(holder)
+
+        basic = QGroupBox("Application profile")
+        bf = QFormLayout(basic)
+        self.name = QLineEdit()
+        bf.addRow("Name", self.name)
+        self.match = QLineEdit()
+        self.match.setPlaceholderText("comma-separated patterns, e.g. steam_app_*, wine*")
+        bf.addRow("Match processes", self.match)
+        self.executable = QLineEdit()
+        bf.addRow("Executable / command", self.executable)
+        self.args = QLineEdit()
+        bf.addRow("Arguments", self.args)
+        self.cwd = QLineEdit()
+        bf.addRow("Working dir", self.cwd)
+        self.overlay_combo = QComboBox()
+        bf.addRow("Overlay profile", self.overlay_combo)
+        self.backend_combo = QComboBox()
+        bf.addRow("FPS backend", self.backend_combo)
+        self.gamemode = QCheckBox("Run with gamemoderun")
+        bf.addRow(self.gamemode)
+        self.prefix = QLineEdit()
+        self.prefix.setPlaceholderText("extra command prefix (shell words)")
+        bf.addRow("Command prefix", self.prefix)
+        self.env = QPlainTextEdit()
+        self.env.setPlaceholderText("KEY=value per line")
+        self.env.setMaximumHeight(90)
+        bf.addRow("Environment", self.env)
+        rl.addWidget(basic)
+
+        detect = QGroupBox("Import from installed games")
+        df = QFormLayout(detect)
+        self.game_combo = QComboBox()
+        df.addRow("Detected game", self.game_combo)
+        imp = QPushButton("Import selected game")
+        imp.clicked.connect(self.import_game)
+        df.addRow(imp)
+        rl.addWidget(detect)
+
+        btns = QHBoxLayout()
+        save = QPushButton("Save")
+        save.clicked.connect(self.save)
+        run = QPushButton("Launch")
+        run.clicked.connect(self.launch)
+        btns.addWidget(save)
+        btns.addWidget(run)
+        rl.addLayout(btns)
+        rl.addStretch(1)
+        right.setWidget(holder)
+        root.addWidget(right, 3)
+
         self.reload()
 
     def reload(self):
         self.list.clear()
-        for g in all_games():
-            key = g.appid or g.exec or g.name
-            it = QListWidgetItem(f"{g.name}  [{g.launcher}]  {key}")
-            it.setData(Qt.UserRole, (g.name, g.launcher, key))
+        for p in self.app.store.app_profiles:
+            it = QListWidgetItem(p.name or "(unnamed)")
+            it.setData(Qt.UserRole, p.name)
             self.list.addItem(it)
-        self.preset_combo.clear()
-        self.preset_combo.addItem("")
-        MANGOHUD_DIR.mkdir(parents=True, exist_ok=True)
-        for f in sorted(MANGOHUD_DIR.glob("*.conf")):
-            self.preset_combo.addItem(f.name)
-        self.gm_combo.clear()
-        self.gm_combo.addItem("")
-        for p in load_profiles():
-            self.gm_combo.addItem(p.name)
+        self._reload_combos()
+        self._reload_games()
 
-    def _sel(self):
-        it = self.list.currentItem()
-        if not it:
-            return None
-        return it.data(Qt.UserRole)
+    def _reload_combos(self):
+        cur_ov = self.overlay_combo.currentText()
+        self.overlay_combo.clear()
+        self.overlay_combo.addItem("")
+        for p in self.app.store.overlay_profiles:
+            self.overlay_combo.addItem(p.name)
+        if cur_ov:
+            self.overlay_combo.setCurrentText(cur_ov)
 
-    def add_manual(self):
-        name, ok = QInputDialog.getText(self, "Manual game", "Name:")
-        if not ok or not name.strip():
+        cur_be = self.backend_combo.currentText()
+        self.backend_combo.clear()
+        self.backend_combo.addItem("")
+        for backend in self.app.fps_manager.backends():
+            status = backend.available()
+            label = backend.label if status.available else f"{backend.label} (unavailable)"
+            self.backend_combo.addItem(label, backend.name)
+        if cur_be:
+            self.backend_combo.setCurrentText(cur_be)
+
+    def _reload_games(self):
+        self.game_combo.clear()
+        try:
+            self._games = games_mod.all_games()
+        except Exception:
+            self._games = []
+        for g in self._games:
+            self.game_combo.addItem(f"{g.name}  [{g.launcher}]", g)
+
+    def on_select(self, row):
+        if row < 0:
+            self.current = None
             return
-        exe, ok = QFileDialog.getOpenFileName(self, "Select executable")
-        if not ok:
-            exe, ok = QInputDialog.getText(self, "Manual game", "Executable / command:")
-            if not ok or not str(exe).strip():
-                return
-        save_manual_game(name.strip(), str(exe).strip())
+        name = self.list.item(row).data(Qt.UserRole)
+        profile = next((p for p in self.app.store.app_profiles if p.name == name), None)
+        self.current = profile
+        if profile is None:
+            return
+        self.name.setText(profile.name)
+        self.match.setText(", ".join(profile.match))
+        self.executable.setText(profile.executable or "")
+        self.args.setText(profile.args or "")
+        self.cwd.setText(profile.cwd or "")
+        self.overlay_combo.setCurrentText(profile.overlay or "")
+        idx = self.backend_combo.findData(profile.fps_backend or "")
+        self.backend_combo.setCurrentIndex(max(0, idx))
+        self.gamemode.setChecked(profile.gamemode)
+        self.prefix.setText(" ".join(profile.command_prefix or []))
+        self.env.setPlainText("\n".join(f"{k}={v}" for k, v in (profile.env or {}).items()))
+
+    def _parse_env(self) -> dict:
+        env = {}
+        for line in self.env.toPlainText().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip()
+        return env
+
+    def _collect(self) -> AppProfile:
+        return AppProfile(
+            name=self.name.text().strip() or "unnamed",
+            match=[m.strip() for m in self.match.text().split(",") if m.strip()],
+            executable=self.executable.text().strip() or None,
+            args=self.args.text().strip(),
+            cwd=self.cwd.text().strip() or None,
+            overlay=self.overlay_combo.currentText() or None,
+            fps_backend=self.backend_combo.currentData() or None,
+            gamemode=self.gamemode.isChecked(),
+            command_prefix=shlex.split(self.prefix.text()) if self.prefix.text().strip() else [],
+            env=self._parse_env(),
+        )
+
+    def save(self):
+        new = self._collect()
+        old_name = self.current.name if self.current else None
+        if old_name and old_name != new.name:
+            self.app.store.delete_app(old_name)
+        self.app.store.upsert_app(new)
+        self.app.store.save()
+        self.reload()
+        self.app.status.showMessage(f"Saved app profile '{new.name}'", 4000)
+
+    def new(self):
+        self.app.store.upsert_app(AppProfile(name="new-app"))
+        self.app.store.save()
         self.reload()
 
-    def bind(self):
-        sel = self._sel()
-        if not sel:
+    def delete(self):
+        if not self.current:
             return
-        name, launcher, key = sel
-        preset = self.preset_combo.currentText()
-        gm = self.gm_combo.currentText()
-        binds = [b for b in load_bindings() if not (b.game_key == key and b.launcher == launcher)]
-        binds.append(Binding(game_key=key, launcher=launcher, preset=preset, gamemode_profile=gm))
-        save_bindings(binds)
-        self.app.status.showMessage(f"Bound {name} -> {preset or 'none'} / {gm or 'none'}", 4000)
+        self.app.store.delete_app(self.current.name)
+        self.app.store.save()
+        self.reload()
 
-    def launch(self, use_gamemode):
-        sel = self._sel()
-        if not sel:
+    def from_running(self):
+        names = sorted(set(running_process_names()))
+        name, ok = QInputDialog.getItem(self, "Running process", "Process name:", names, 0, False)
+        if not ok or not name:
             return
-        name, launcher, key = sel
-        b = get_binding(key)
-        preset_name = b.preset if b else ""
-        gm_name = b.gamemode_profile if b else ""
-        if preset_name:
-            from src.restore import backup_conf
-            backup_conf()
-            src = MANGOHUD_DIR / preset_name
-            if src.exists():
-                try:
-                    (MANGOHUD_DIR / "MangoHud.conf").write_text(
-                        src.read_text(encoding="utf-8", errors="replace"), encoding="utf-8"
-                    )
-                except Exception:
-                    pass
+        self.app.store.upsert_app(AppProfile(name=name, match=[name]))
+        self.app.store.save()
+        self.reload()
 
-        cmd = None
-        if launcher == "steam":
-            cmd = ["steam", f"steam://rungameid/{key}"]
-        elif launcher == "lutris":
-            cmd = ["lutris", f"lutris:rungameid/{key}"]
-        elif launcher == "heroic":
-            cmd = ["xdg-open", f"heroic://launch/{key}"]
-        elif launcher == "bottles":
-            cmd = ["bottles", "run", "-b", key]
-        elif launcher == "manual":
-            cmd = shlex.split(key) if " " in key else [key]
-        if not cmd:
+    def import_game(self):
+        g = self.game_combo.currentData()
+        if g is None:
             return
-        env = dict(os.environ)
-        if use_gamemode and gm_name:
-            try:
-                from src.gamemode import build_env, run_kill, find_gamemoderun
-                profile = next((p for p in load_profiles() if p.name == gm_name), None)
-                if profile:
-                    env = build_env(profile, env)
-                    run_kill(profile)
-                    gm = find_gamemoderun()
-                    if gm and profile.gamemode:
-                        cmd = [gm] + cmd
-            except Exception:
-                pass
+        executable = g.exec or ""
+        if g.launcher == "steam" and g.appid:
+            executable = f"steam steam://rungameid/{g.appid}"
+        elif g.launcher == "lutris" and g.appid:
+            executable = f"lutris lutris:rungameid/{g.appid}"
+        elif g.launcher == "heroic" and g.appid:
+            executable = f"xdg-open heroic://launch/{g.appid}"
+        elif g.launcher == "bottles" and g.appid:
+            executable = f"bottles run -b {g.appid}"
+        profile = AppProfile(
+            name=g.name,
+            match=[f"*{g.name.lower().replace(' ', '')}*"],
+            executable=executable or None,
+            overlay=self.app.store.active_overlay,
+        )
+        self.app.store.upsert_app(profile)
+        self.app.store.save()
+        self.reload()
+
+    def launch(self):
+        if not self.current:
+            QMessageBox.information(self, "Launch", "Select or save a profile first.")
+            return
+        profile = self._collect()
         try:
-            subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.app.status.showMessage(f"Launched {name}", 4000)
+            _proc, command = launch_profile(profile, self.app.store, self.app.fps_manager)
+            self.app.start_overlay()
+            self.app.status.showMessage(f"Launched: {' '.join(command)}", 5000)
         except Exception as e:
-            self.app.status.showMessage(f"Launch failed: {e}", 6000)
+            QMessageBox.warning(self, "Launch failed", str(e))
 
 
 class SettingsTab(QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        s = app.settings
         root = QVBoxLayout(self)
 
-        ov = QGroupBox("Overlay")
-        form = QFormLayout(ov)
-        self.position = QComboBox()
-        self.position.addItems(["top-left", "top-right", "bottom-left", "bottom-right", "center"])
-        self.position.setCurrentText(s.position)
-        form.addRow("Position", self.position)
-        self.margin = QSpinBox()
-        self.margin.setRange(0, 400)
-        self.margin.setValue(s.margin)
-        form.addRow("Margin (px)", self.margin)
-        self.opacity = QDoubleSpinBox()
-        self.opacity.setRange(0.1, 1.0)
-        self.opacity.setSingleStep(0.05)
-        self.opacity.setValue(s.opacity)
-        form.addRow("Opacity", self.opacity)
-        self.font_size = QSpinBox()
-        self.font_size.setRange(7, 48)
-        self.font_size.setValue(s.font_size)
-        form.addRow("Font size", self.font_size)
-        self.refresh = QSpinBox()
-        self.refresh.setRange(100, 5000)
-        self.refresh.setSingleStep(100)
-        self.refresh.setValue(s.refresh_ms)
-        form.addRow("Refresh (ms)", self.refresh)
-        self.click_through = QCheckBox("Click-through (ignore mouse)")
-        self.click_through.setChecked(s.click_through)
-        form.addRow(self.click_through)
-        root.addWidget(ov)
+        backend = QGroupBox("Global FPS backend")
+        bf = QFormLayout(backend)
+        self.backend_combo = QComboBox()
+        bf.addRow("Backend", self.backend_combo)
+        self.backend_desc = QLabel("")
+        self.backend_desc.setWordWrap(True)
+        bf.addRow(self.backend_desc)
+        root.addWidget(backend)
 
-        colors = QGroupBox("Colors")
-        cform = QFormLayout(colors)
-        self.font_color = s.font_color
-        self.accent_color = s.accent_color
-        self.bg_color = s.bg_color
-        self.font_btn = QPushButton(s.font_color)
-        self.font_btn.clicked.connect(lambda: self.pick("font_color", self.font_btn))
-        self.accent_btn = QPushButton(s.accent_color)
-        self.accent_btn.clicked.connect(lambda: self.pick("accent_color", self.accent_btn))
-        self.bg_btn = QPushButton(s.bg_color)
-        self.bg_btn.clicked.connect(lambda: self.pick("bg_color", self.bg_btn))
-        cform.addRow("Text", self.font_btn)
-        cform.addRow("Accent", self.accent_btn)
-        cform.addRow("Background", self.bg_btn)
-        root.addWidget(colors)
+        general = QGroupBox("General")
+        gf = QFormLayout(general)
+        self.start_overlay = QCheckBox("Start overlay when the app launches")
+        gf.addRow(self.start_overlay)
+        self.auto_switch = QCheckBox("Auto-switch overlay by running process")
+        gf.addRow(self.auto_switch)
+        self.active_combo = QComboBox()
+        gf.addRow("Default overlay profile", self.active_combo)
+        root.addWidget(general)
 
-        metrics = QGroupBox("Metrics")
-        mform = QFormLayout(metrics)
-        self.checks = {}
-        for key, text in (
-            ("show_cpu", "CPU"),
-            ("show_gpu", "GPU load"),
-            ("show_vram", "VRAM"),
-            ("show_ram", "RAM"),
-            ("show_temp", "Temperature"),
-            ("show_fps", "FPS"),
-        ):
-            cb = QCheckBox(text)
-            cb.setChecked(getattr(s, key))
-            self.checks[key] = cb
-            mform.addRow(cb)
-        root.addWidget(metrics)
-
-        fps = QGroupBox("FPS source (MangoHud log)")
-        fform = QFormLayout(fps)
-        self.mh_logging = QCheckBox("Enable MangoHud FPS logging")
-        self.mh_logging.setChecked(s.mangohud_logging)
-        fform.addRow(self.mh_logging)
-        row = QHBoxLayout()
-        self.fps_log = QLineEdit(s.fps_log)
-        browse = QPushButton("...")
-        browse.clicked.connect(self.browse_log)
-        row.addWidget(self.fps_log)
-        row.addWidget(browse)
-        w = QWidget()
-        w.setLayout(row)
-        fform.addRow("Log file", w)
-        root.addWidget(fps)
-
-        apply = QPushButton("Apply and save")
-        apply.clicked.connect(self.apply)
-        root.addWidget(apply)
+        save = QPushButton("Save")
+        save.clicked.connect(self.apply)
+        root.addWidget(save)
         root.addStretch(1)
+        self.reload()
 
-    def pick(self, attr, btn):
-        cur = getattr(self, attr)
-        c = QColorDialog.getColor(QColor(cur), self)
-        if c.isValid():
-            setattr(self, attr, c.name())
-            btn.setText(c.name())
+    def reload(self):
+        self.backend_combo.clear()
+        for backend in self.app.fps_manager.backends():
+            status = backend.available()
+            label = backend.label if status.available else f"{backend.label} — {status.reason}"
+            self.backend_combo.addItem(label, backend.name)
+        idx = self.backend_combo.findData(self.app.store.global_fps_backend)
+        if idx >= 0:
+            self.backend_combo.setCurrentIndex(idx)
+        self.backend_combo.currentIndexChanged.connect(self._sync_desc)
+        self._sync_desc()
+        self.start_overlay.setChecked(self.app.start_overlay_enabled)
+        self.auto_switch.setChecked(self.app.auto_switch_enabled)
+        self.active_combo.clear()
+        for p in self.app.store.overlay_profiles:
+            self.active_combo.addItem(p.name)
+        self.active_combo.setCurrentText(self.app.store.active_overlay)
 
-    def browse_log(self):
-        p, _ = QFileDialog.getSaveFileName(self, "FPS log file", self.fps_log.text())
-        if p:
-            self.fps_log.setText(p)
+    def _sync_desc(self):
+        name = self.backend_combo.currentData()
+        backend = next((b for b in self.app.fps_manager.backends() if b.name == name), None)
+        status = backend.available() if backend else None
+        text = backend.description if backend else ""
+        if status and not status.available:
+            text += f"  (Unavailable: {status.reason})"
+        self.backend_desc.setText(text)
 
     def apply(self):
-        s = self.app.settings
-        s.position = self.position.currentText()
-        s.margin = self.margin.value()
-        s.opacity = self.opacity.value()
-        s.font_size = self.font_size.value()
-        s.refresh_ms = self.refresh.value()
-        s.click_through = self.click_through.isChecked()
-        s.font_color = self.font_color
-        s.accent_color = self.accent_color
-        s.bg_color = self.bg_color
-        for key, cb in self.checks.items():
-            setattr(s, key, cb.isChecked())
-        s.mangohud_logging = self.mh_logging.isChecked()
-        s.fps_log = self.fps_log.text()
-        try:
-            set_mangohud_logging(s.mangohud_logging, s.fps_log)
-        except Exception:
-            pass
-        s.save()
-        self.app.overlay_settings_changed()
+        self.app.store.global_fps_backend = self.backend_combo.currentData() or "null"
+        self.app.store.active_overlay = self.active_combo.currentText()
+        self.app.start_overlay_enabled = self.start_overlay.isChecked()
+        self.app.auto_switch_enabled = self.auto_switch.isChecked()
+        self.app.store.save()
+        self.app.fps_manager.set_backend(self.app.store.global_fps_backend)
+        self.app.refresh_overlay()
         self.app.status.showMessage("Settings saved", 4000)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.settings = Settings.load()
+        self.store = ProfileStore()
+        self.fps_manager = FPSManager(self.store.global_fps_backend)
+        self.start_overlay_enabled = True
+        self.auto_switch_enabled = True
+
         self.setWindowTitle("Gamohud")
-        self.resize(980, 660)
+        self.resize(1040, 700)
 
         self.tabs = QTabWidget()
         self.dashboard = DashboardTab(self)
-        self.presets = PresetsTab(self)
-        self.games = GamesTab(self)
+        self.overlay_tab = OverlayTab(self)
+        self.apps_tab = AppsTab(self)
         self.settings_tab = SettingsTab(self)
         self.tabs.addTab(self.dashboard, "Dashboard")
-        self.tabs.addTab(self.presets, "Presets")
-        self.tabs.addTab(self.games, "Games")
-        self.tabs.addTab(self.settings_tab, "Overlay & Settings")
+        self.tabs.addTab(self.overlay_tab, "Overlay Profiles")
+        self.tabs.addTab(self.apps_tab, "Applications")
+        self.tabs.addTab(self.settings_tab, "Settings")
         self.setCentralWidget(self.tabs)
 
         self.overlay = None
-        if self.settings.overlay_enabled:
+        self._overlay_profile_name = None
+        if self.start_overlay_enabled:
             self.start_overlay()
+
+        self._auto_timer = QTimer(self)
+        self._auto_timer.timeout.connect(self._auto_switch)
+        self._auto_timer.start(2000)
 
         self._build_tray()
         self.status = self.statusBar()
         self.status.showMessage("Ready", 3000)
 
+    def current_overlay_name(self):
+        return self._overlay_profile_name or self.store.active_overlay
+
+    def _overlay_data(self):
+        return collect_all(self.fps_manager.read())
+
+    def start_overlay(self):
+        profile = self.store.active_overlay_profile()
+        if self.overlay is None:
+            self.overlay = OverlayWindow(profile, self._overlay_data)
+        self.overlay.set_profile(profile)
+        self._overlay_profile_name = profile.name
+        self.overlay.show()
+
+    def stop_overlay(self):
+        if self.overlay is not None:
+            self.overlay.hide()
+            self._overlay_profile_name = None
+
+    def refresh_overlay(self):
+        if self.overlay is None:
+            return
+        profile = self.store.get_overlay(self._overlay_profile_name) or self.store.active_overlay_profile()
+        self.overlay.set_profile(profile)
+
+    def preview_overlay(self, profile):
+        if self.overlay is None:
+            self.overlay = OverlayWindow(profile, self._overlay_data)
+        self.overlay.set_profile(profile)
+        self._overlay_profile_name = profile.name
+        self.overlay.show()
+
+    def _auto_switch(self):
+        if self.overlay is None or not self.auto_switch_enabled:
+            return
+        names = running_process_names(limit=200)
+        matched = find_profile(self.store.app_profiles, names)
+        target_name = None
+        if matched and matched.overlay:
+            target_name = matched.overlay
+        if target_name is None:
+            target_name = self.store.active_overlay
+        if target_name != self._overlay_profile_name:
+            profile = self.store.get_overlay(target_name)
+            if profile is not None:
+                self.overlay.set_profile(profile)
+                self._overlay_profile_name = profile.name
+
     def _build_tray(self):
         self.tray = QSystemTrayIcon(self)
         try:
-            from PySide6.QtGui import QIcon
-            self.tray.setIcon(QIcon.fromTheme("utilities-terminal"))
+            self.tray.setIcon(QIcon.fromTheme("utilities-system-monitor"))
         except Exception:
             pass
         menu = QMenu()
@@ -520,33 +707,17 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def start_overlay(self):
-        if self.overlay is None:
-            self.overlay = OverlayWindow(self.settings)
-        self.overlay.apply_settings(self.settings)
-        self.overlay.show()
-        self.settings.overlay_enabled = True
-
-    def stop_overlay(self):
-        if self.overlay is not None:
-            self.overlay.hide()
-        self.settings.overlay_enabled = False
-
     def toggle_overlay(self):
-        if self.settings.overlay_enabled:
+        if self.overlay is not None and self.overlay.isVisible():
             self.stop_overlay()
         else:
             self.start_overlay()
-        self.settings.save()
-
-    def overlay_settings_changed(self):
-        if self.overlay is not None:
-            self.overlay.apply_settings(self.settings)
 
     def closeEvent(self, event):
         event.ignore()
         self.hide()
-        self.tray.showMessage("Gamohud", "Still running in tray. Use Quit to exit.")
+        if self.tray.isVisible():
+            self.tray.showMessage("Gamohud", "Still running in tray. Use Quit to exit.")
 
 
 def main():

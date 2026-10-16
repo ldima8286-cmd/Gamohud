@@ -167,7 +167,7 @@ def all_games():
     return g
 
 
-MANUAL_FILE = Path.home() / ".config" / "mangohud-preset-manager" / "manual_games.json"
+MANUAL_FILE = Path.home() / ".config" / "gamohud" / "manual_games.json"
 
 
 def load_manual_games():

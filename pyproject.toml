@@ -1,10 +1,9 @@
 [project]
 name = "gamohud"
 version = "0.1.0"
-description = "Gamohud - lightweight overlay/monitoring tool inspired by MangoHud"
+description = "Gamohud - standalone performance overlay and app launcher (no MangoHud required)"
 requires-python = ">=3.10"
 dependencies = [
-    "textual>=5.0.1",
     "pyyaml>=6.0.2",
     "psutil>=6.1.0",
     "PySide6-Essentials>=6.5",

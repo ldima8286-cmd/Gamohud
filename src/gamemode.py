@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import yaml
 
-PROFILES = Path.home() / ".config" / "mangohud-preset-manager" / "gamemode_profiles.yaml"
+PROFILES = Path.home() / ".config" / "gamohud" / "gamemode_profiles.yaml"
 
 
 @dataclass
@@ -15,7 +15,6 @@ class GMProfile:
     kill: list = None  # list of process names/commands to kill before run
     restore: list = None  # list of commands to run after process ends
     env: dict = None  # extra env vars
-    preset: str = ""
 
 
 def load_profiles():
