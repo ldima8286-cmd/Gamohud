@@ -791,14 +791,26 @@ class MainWindow(QMainWindow):
     def _enable_keep_above(self):
         if not self.keep_above.available:
             return
+        self.keep_above.set_position_provider(self._overlay_position)
         ok, msg = self.keep_above.enable()
         if ok:
             self.status.showMessage(tr("Overlay set to stay above other windows (KWin)"), 4000)
         else:
             self.status.showMessage(tr("Keep-above unavailable: {reason}").format(reason=msg), 6000)
 
+    def _overlay_position(self):
+        profile = self.store.get_overlay(self._overlay_profile_name) or self.store.active_overlay_profile()
+        if profile is None or profile.position != "custom":
+            return None
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return None
+        geo = screen.availableGeometry()
+        return (geo.left() + profile.x, geo.top() + profile.y)
+
     def _overlay_moved(self):
         self.store.save()
+        self.keep_above.reapply()
         if self.overlay is not None:
             self.status.showMessage(tr("Overlay position saved"), 3000)
 

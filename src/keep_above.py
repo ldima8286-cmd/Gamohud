@@ -1,15 +1,21 @@
-"""Best-effort "always on top" for KDE/KWin on Wayland.
+"""Best-effort "always on top" + position restore for KDE/KWin on Wayland.
 
 Qt's ``WindowStaysOnTopHint`` is honoured on X11 and Windows but ignored by
-KWin on Wayland, so the overlay can end up behind other windows. The only way
-to force it above without a ``wlr-layer-shell`` surface is to ask KWin itself:
-we load a tiny KWin script (over D-Bus) that sets ``keepAbove`` on our overlay
-window. The overlay is identified by its window title ("gamohud-overlay"), so
-the main window is left untouched.
+KWin on Wayland, and a normal Wayland toplevel cannot position itself
+(``move()`` is a no-op). So the only way to keep the overlay above everything
+*and* restore its saved position is to ask KWin itself: we load a small KWin
+script (over D-Bus) that
 
-All of this is best-effort: if the session bus / KWin is not reachable (e.g.
-inside a Flatpak sandbox, or on X11/Windows) every call degrades to a no-op and
-the caller can report it.
+  * sets ``keepAbove`` / ``skipTaskbar`` on our overlay, and
+  * (optionally) moves the overlay to the saved global position.
+
+The overlay is identified by its window title ("gamohud-overlay"). The position
+is baked into the generated script on every load, so no file reads are needed
+inside KWin.
+
+Everything here is best-effort: if the session bus / KWin is not reachable
+(e.g. inside a Flatpak sandbox, or on X11/Windows) every call degrades to a
+no-op and the caller can report it.
 """
 from __future__ import annotations
 
@@ -30,15 +36,16 @@ function isOverlay(w) {
 }
 function apply(w) {
     try {
-        if (isOverlay(w)) {
-            w.keepAbove = true;
-            w.skipTaskbar = true;
-            w.skipSwitcher = true;
-        }
+        if (!w || !isOverlay(w)) return;
+        try { w.keepAbove = true; } catch (e) {}
+        try { w.skipTaskbar = true; } catch (e) {}
+        try { w.skipSwitcher = true; } catch (e) {}
+%RESTORE%
     } catch (e) {}
 }
-try {
-    if (typeof workspace !== "undefined") {
+function applyAll() {
+    try {
+        if (typeof workspace === "undefined") return;
         if (workspace.windowList) {            // KWin 5.21+ / KWin 6
             workspace.windowList().forEach(apply);
             workspace.windowAdded.connect(apply);
@@ -46,9 +53,20 @@ try {
             workspace.clientList().forEach(apply);
             workspace.clientAdded.connect(apply);
         }
-    }
-} catch (e) {}
-'''.replace("%TITLE%", _TITLE_PREFIX)
+    } catch (e) {}
+}
+applyAll();
+'''
+
+_RESTORE_BLOCK = """        try {
+            if (w.moveable) {
+                var g = w.geometry;
+                if (g.x !== %X% || g.y !== %Y%) {
+                    w.geometry.x = %X%;
+                    w.geometry.y = %Y%;
+                }
+            }
+        } catch (e) {}"""
 
 
 def _qdbus() -> str | None:
@@ -86,21 +104,39 @@ class KeepAbove:
     def __init__(self) -> None:
         self._id: str | None = None
         self._tool: str | None = _qdbus() if IS_LINUX else None
+        self._provider = None
 
     @property
     def available(self) -> bool:
         return self._tool is not None
 
+    def set_position_provider(self, fn) -> None:
+        """``fn()`` -> (x, y) global ints for the overlay, or None."""
+        self._provider = fn
+
+    def _script_text(self) -> str:
+        restore = ""
+        if self._provider is not None:
+            xy = self._provider()
+            if xy:
+                x, y = int(xy[0]), int(xy[1])
+                restore = _RESTORE_BLOCK.replace("%X%", str(x)).replace("%Y%", str(y))
+        return _SCRIPT.replace("%TITLE%", _TITLE_PREFIX).replace("%RESTORE%", restore)
+
+    def _write(self) -> str:
+        path = config_dir("gamohud") / "keep_above.js"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self._script_text(), encoding="utf-8")
+        return str(path)
+
     def enable(self) -> tuple[bool, str]:
-        """Write and load the KWin script. Returns (ok, message)."""
+        """Write, load and run the KWin script. Returns (ok, message)."""
         if not IS_LINUX:
             return (False, "not Linux")
         if self._tool is None:
             return (False, "qdbus not found")
-        path = config_dir("gamohud") / "keep_above.js"
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_SCRIPT, encoding="utf-8")
+            path = self._write()
         except Exception as exc:  # pragma: no cover
             return (False, f"could not write script: {exc}")
 
@@ -108,19 +144,36 @@ class KeepAbove:
             self._tool,
             "/Scripting",
             "org.kde.kwin.Scripting.loadScript",
-            str(path),
+            path,
         )
         if out is None:
             return (False, "KWin D-Bus unavailable")
         self._id = "".join(ch for ch in out if ch.isdigit()) or None
+        self._run()
+        return (True, f"loaded (id={self._id})")
+
+    def _run(self) -> None:
+        if self._tool is None:
+            return
         if self._id:
             _call(self._tool, f"/Scripting/Script{self._id}", "org.kde.kwin.Script.run")
         else:
             _call(self._tool, "/Scripting", "org.kde.kwin.Scripting.start")
-        return (True, f"loaded (id={self._id})")
 
     def reapply(self) -> None:
-        """Re-run the script so a freshly (re)mapped overlay is caught again."""
+        """Regenerate the script (fresh position) and reload + re-run it.
+
+        Called after the overlay is re-mapped (lock toggle) or moved, because a
+        re-mapped Wayland window triggers windowAdded and must be re-placed.
+        """
         if self._tool is None or self._id is None:
             return
-        _call(self._tool, f"/Scripting/Script{self._id}", "org.kde.kwin.Script.run")
+        try:
+            path = self._write()
+        except Exception:
+            return
+        _call(self._tool, "/Scripting", "org.kde.kwin.Scripting.unloadScript", path)
+        out = _call(self._tool, "/Scripting", "org.kde.kwin.Scripting.loadScript", path)
+        if out is not None:
+            self._id = "".join(ch for ch in out if ch.isdigit()) or self._id
+        self._run()
