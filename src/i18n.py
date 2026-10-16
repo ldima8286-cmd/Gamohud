@@ -56,6 +56,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "A profile with that name exists.": "Профиль с таким именем уже существует.",
         "Saved overlay profile '{name}'": "Профиль оверлея «{name}» сохранён",
         "Delete '{name}'?": "Удалить «{name}»?",
+        "Unlock to move": "Разблокировать для перемещения",
+        "Lock overlay": "Заблокировать оверлей",
+        "Unlock, then drag the overlay with the mouse to place it. "
+        "Ctrl+Shift+L toggles the lock.": (
+            "Разблокируйте и перетащите оверлей мышью, чтобы разместить его. "
+            "Ctrl+Shift+L переключает блокировку."
+        ),
+        "Overlay locked": "Оверлей заблокирован",
+        "Overlay unlocked - drag it with the mouse": "Оверлей разблокирован — перетащите его мышью",
+        "Overlay position saved": "Позиция оверлея сохранена",
         # apps tab
         "Application profile": "Профиль приложения",
         "Match processes": "Совпадение процессов",
@@ -100,6 +110,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         # tray
         "Show window": "Показать окно",
         "Toggle overlay": "Показать/скрыть оверлей",
+        "Move overlay (unlock)": "Перемещать оверлей",
         "Quit": "Выход",
         "Gamohud": "Gamohud",
         "Still running in tray. Use Quit to exit.": "Приложение свёрнуто в трей. Для выхода выберите «Выход».",

@@ -31,6 +31,7 @@ class ProfileStore:
         self.active_overlay: str = "default"
         self.global_fps_backend: str = "vulkan_layer"
         self.language: str = "en"
+        self.overlay_locked: bool = True
         self.load()
 
     def load(self) -> None:
@@ -52,6 +53,7 @@ class ProfileStore:
         self.active_overlay = data.get("active_overlay", self.overlay_profiles[0].name)
         self.global_fps_backend = data.get("global_fps_backend", "vulkan_layer")
         self.language = data.get("language", "en")
+        self.overlay_locked = bool(data.get("overlay_locked", True))
         if not self.app_profiles:
             self.app_profiles = default_app_profiles()
 
@@ -61,6 +63,7 @@ class ProfileStore:
             "active_overlay": self.active_overlay,
             "global_fps_backend": self.global_fps_backend,
             "language": self.language,
+            "overlay_locked": self.overlay_locked,
             "overlay_profiles": [p.to_dict() for p in self.overlay_profiles],
             "app_profiles": [p.to_dict() for p in self.app_profiles],
         }

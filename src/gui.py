@@ -2,7 +2,7 @@ import os
 import sys
 
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QColor, QAction, QIcon, QPixmap
+from PySide6.QtGui import QColor, QAction, QIcon, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -185,9 +185,17 @@ class OverlayTab(QWidget):
         save.clicked.connect(self.save)
         preview = QPushButton(tr("Apply / Preview"))
         preview.clicked.connect(self.preview)
+        self.lock_btn = QPushButton(tr("Unlock to move"))
+        self.lock_btn.setCheckable(True)
+        self.lock_btn.toggled.connect(self._on_lock_toggled)
         btn_row.addWidget(save)
         btn_row.addWidget(preview)
+        btn_row.addWidget(self.lock_btn)
         rl.addLayout(btn_row)
+        hint = QLabel(tr("Unlock, then drag the overlay with the mouse to place it. "
+                         "Ctrl+Shift+L toggles the lock."))
+        hint.setWordWrap(True)
+        rl.addWidget(hint)
         rl.addStretch(1)
         right.setWidget(holder)
         root.addWidget(right, 3)
@@ -210,6 +218,7 @@ class OverlayTab(QWidget):
                 0,
             )
             self.list.setCurrentRow(row)
+        self.sync_lock_button()
 
     def on_select(self, row):
         if row < 0:
@@ -278,6 +287,15 @@ class OverlayTab(QWidget):
         if not self.current:
             return
         self.app.preview_overlay(self._collect())
+
+    def _on_lock_toggled(self, checked):
+        self.app.set_overlay_locked(not checked)
+
+    def sync_lock_button(self):
+        self.lock_btn.blockSignals(True)
+        self.lock_btn.setChecked(not self.app.overlay_locked)
+        self.lock_btn.blockSignals(False)
+        self.lock_btn.setText(tr("Lock overlay") if not self.app.overlay_locked else tr("Unlock to move"))
 
     def new(self):
         p = OverlayProfile(name="new-profile")
@@ -706,6 +724,7 @@ class MainWindow(QMainWindow):
         self.fps_manager = FPSManager(self.store.global_fps_backend)
         self.start_overlay_enabled = True
         self.auto_switch_enabled = True
+        self.overlay_locked = self.store.overlay_locked
 
         set_language(self.store.language)
         self.setWindowTitle("Gamohud")
@@ -724,6 +743,8 @@ class MainWindow(QMainWindow):
         self._auto_timer.start(2000)
 
         self._build_tray()
+        self._lock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+L"), self)
+        self._lock_shortcut.activated.connect(self.toggle_overlay_lock)
         self.status = self.statusBar()
         self.status.showMessage(tr("Ready"), 3000)
 
@@ -754,9 +775,38 @@ class MainWindow(QMainWindow):
         profile = self.store.active_overlay_profile()
         if self.overlay is None:
             self.overlay = OverlayWindow(profile, self._overlay_data)
+            self._wire_overlay(self.overlay)
         self.overlay.set_profile(profile)
+        self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
         self.overlay.show()
+
+    def _wire_overlay(self, overlay):
+        overlay.on_position_changed = self._overlay_moved
+
+    def _overlay_moved(self):
+        self.store.save()
+        if self.overlay is not None:
+            self.status.showMessage(tr("Overlay position saved"), 3000)
+
+    def set_overlay_locked(self, locked: bool):
+        self.overlay_locked = bool(locked)
+        self.store.overlay_locked = self.overlay_locked
+        self.store.save()
+        if self.overlay is not None:
+            self.overlay.set_locked(self.overlay_locked)
+        self.overlay_tab.sync_lock_button()
+        if hasattr(self, "act_move"):
+            self.act_move.blockSignals(True)
+            self.act_move.setChecked(not self.overlay_locked)
+            self.act_move.blockSignals(False)
+        self.status.showMessage(
+            tr("Overlay locked") if self.overlay_locked else tr("Overlay unlocked - drag it with the mouse"),
+            3000,
+        )
+
+    def toggle_overlay_lock(self):
+        self.set_overlay_locked(not self.overlay_locked)
 
     def stop_overlay(self):
         if self.overlay is not None:
@@ -772,7 +822,9 @@ class MainWindow(QMainWindow):
     def preview_overlay(self, profile):
         if self.overlay is None:
             self.overlay = OverlayWindow(profile, self._overlay_data)
+            self._wire_overlay(self.overlay)
         self.overlay.set_profile(profile)
+        self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
         self.overlay.show()
 
@@ -813,10 +865,15 @@ class MainWindow(QMainWindow):
         act_show.triggered.connect(self.show_window)
         act_overlay = QAction(tr("Toggle overlay"), self)
         act_overlay.triggered.connect(self.toggle_overlay)
+        self.act_move = QAction(tr("Move overlay (unlock)"), self)
+        self.act_move.setCheckable(True)
+        self.act_move.setChecked(not self.overlay_locked)
+        self.act_move.toggled.connect(lambda checked: self.set_overlay_locked(not checked))
         act_quit = QAction(tr("Quit"), self)
         act_quit.triggered.connect(QApplication.quit)
         menu.addAction(act_show)
         menu.addAction(act_overlay)
+        menu.addAction(self.act_move)
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda r: self.show_window() if r == QSystemTrayIcon.Trigger else None)

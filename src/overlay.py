@@ -77,6 +77,12 @@ class OverlayWindow(QWidget):
         self.profile = profile
         self._rows: dict[str, tuple[QLabel, QLabel]] = {}
 
+        # Locked == click-through (mouse passes to the game). Unlocked makes the
+        # window interactive so it can be dragged with the mouse.
+        self.locked = bool(getattr(profile, "click_through", True))
+        self.on_position_changed = None
+        self._drag_offset = None
+
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self._apply_window_flags()
@@ -117,7 +123,7 @@ class OverlayWindow(QWidget):
             | Qt.Tool
             | Qt.WindowDoesNotAcceptFocus
         )
-        if getattr(self.profile, "click_through", True):
+        if self.locked:
             flags |= Qt.WindowTransparentForInput
         return flags
 
@@ -129,7 +135,7 @@ class OverlayWindow(QWidget):
         what made the overlay "disappear" after saving/switching a profile.
         """
         flags = self._desired_flags()
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, getattr(self.profile, "click_through", True))
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, self.locked)
         if self.windowFlags() == flags:
             return
         was_visible = self.isVisible()
@@ -137,6 +143,49 @@ class OverlayWindow(QWidget):
         if was_visible:
             self.show()
             self.raise_()
+
+    def set_locked(self, locked: bool):
+        """Lock (click-through, cannot be dragged) or unlock the overlay."""
+        locked = bool(locked)
+        if locked == self.locked:
+            return
+        self.locked = locked
+        self._apply_window_flags()
+        self._apply_style()
+        self.setCursor(Qt.ArrowCursor if locked else Qt.SizeAllCursor)
+        if not locked:
+            self.show()
+            self.raise_()
+
+    # -- mouse dragging ---------------------------------------------------
+    def mousePressEvent(self, event):
+        if not self.locked and event.button() == Qt.LeftButton:
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self.locked and self._drag_offset is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if not self.locked and event.button() == Qt.LeftButton and self._drag_offset is not None:
+            self._drag_offset = None
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                geo = screen.availableGeometry()
+                self.profile.position = "custom"
+                self.profile.x = self.x() - geo.left()
+                self.profile.y = self.y() - geo.top()
+            if callable(self.on_position_changed):
+                self.on_position_changed()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def _try_layer_shell(self) -> bool:
         """Best-effort: real always-on-top over fullscreen needs a layer-shell
@@ -178,10 +227,13 @@ class OverlayWindow(QWidget):
             value.setStyleSheet(
                 f"color: {p.fg_color}; font-size: {p.font_size}px; font-weight: {weight};"
             )
+        border = _rgba(p.bg_color, min(1.0, p.bg_opacity + 0.3))
+        if not self.locked:
+            border = p.accent_color
         self.container.setStyleSheet(
             f"#hud {{ background: {_rgba(p.bg_color, p.bg_opacity)};"
             f" border-radius: {p.border_radius}px;"
-            f" border: 1px solid {_rgba(p.bg_color, min(1.0, p.bg_opacity + 0.3))}; }}"
+            f" border: {'2px dashed' if not self.locked else '1px solid'} {border}; }}"
         )
         f = QFont(p.font_family or "Monospace")
         f.setStyleHint(QFont.Monospace)
@@ -213,6 +265,8 @@ class OverlayWindow(QWidget):
         self.raise_()
 
     def _reposition(self):
+        if self._drag_offset is not None:
+            return
         screen = QApplication.primaryScreen()
         if screen is None:
             return
