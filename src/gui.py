@@ -588,6 +588,16 @@ class SettingsTab(QWidget):
         root.addWidget(save)
         root.addStretch(1)
         self.reload()
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+
+    def _on_language_changed(self, _index):
+        code = self.language_combo.currentData()
+        if not code or code == self.app.store.language:
+            return
+        self.app.store.language = code
+        self.app.store.save()
+        set_language(code)
+        QTimer.singleShot(0, self.app.rebuild_ui)
 
     def reload(self):
         self.backend_combo.clear()
