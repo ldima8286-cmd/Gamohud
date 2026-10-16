@@ -35,6 +35,17 @@ CMake is also supported:
 cmake -S . -B build && cmake --build build
 ```
 
+## Testing
+
+`test_layer.py` drives the built shared library directly through Python
+`ctypes`, simulating the Vulkan loader's dispatch chain (negotiation, instance
+and device creation links, and present calls). It verifies the FPS/frametime
+JSON output without needing a GPU or driver:
+
+```
+python test_layer.py build/libgamohud_layer.so
+```
+
 ## How the overlay uses it
 
 When `vulkan_layer` is the selected FPS backend, `gamohud-run` / the GUI set:

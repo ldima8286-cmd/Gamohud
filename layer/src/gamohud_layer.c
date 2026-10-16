@@ -2,18 +2,23 @@
  * gamohud Vulkan layer
  * --------------------
  * A small implicit Vulkan layer that counts presented frames and publishes the
- * resulting FPS / frametime as JSON to a file, so that the gamohud overlay can
- * display real in-game frame rates without MangoHud.
+ * resulting FPS / frametime as JSON so that the gamohud overlay can display
+ * real in-game frame rates without MangoHud.
  *
- * It intercepts vkQueuePresentKHR (device level) and writes stats roughly twice
- * per second to the path in the GAMOHUD_FPS_FILE environment variable (default
- * "$XDG_RUNTIME_DIR/gamohud-fps.json" on Unix, "%TEMP%\gamohud-fps.json" on
- * Windows).
+ * It intercepts vkCreateInstance / vkCreateDevice (to capture the next-layer
+ * function pointers through the loader's dispatch chain) and then
+ * vkQueuePresentKHR at device level, writing stats roughly twice per second to
+ * the path in the GAMOHUD_FPS_FILE environment variable.
  *
- * This file has been written against the standard Vulkan loader interfaces
- * (vulkan.h + vk_layer.h). It must be compiled on a machine that has a C
- * compiler and the Vulkan headers; see layer/README.md.
+ * Written against the standard Vulkan loader interfaces (vulkan.h + vk_layer.h).
+ * Build it on a machine that has a C compiler and the Vulkan headers; see
+ * layer/README.md.
  */
+
+/* For clock_gettime / CLOCK_MONOTONIC under strict C99. */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 
 #include <stdint.h>
 #include <stdio.h>
@@ -36,11 +41,13 @@
 /* ------------------------------------------------------------------ state */
 static PFN_vkGetInstanceProcAddr g_next_gipa = NULL;
 static PFN_vkGetDeviceProcAddr g_next_gdpa = NULL;
+static PFN_vkCreateInstance g_next_create_instance = NULL;
 static PFN_vkCreateDevice g_next_create_device = NULL;
 static PFN_vkQueuePresentKHR g_next_present = NULL;
 
 static uint64_t g_frames = 0;
 static double g_last_write = 0.0;
+static double g_last_frame = 0.0;
 static double g_smoothed_frametime = 0.0; /* seconds */
 static char g_fps_file[1024];
 static int g_initialized = 0;
@@ -68,6 +75,7 @@ static void ensure_initialized(void)
         return;
     g_initialized = 1;
     g_last_write = now_seconds();
+    g_last_frame = g_last_write;
 
     path = getenv("GAMOHUD_FPS_FILE");
     if (path && path[0]) {
@@ -111,23 +119,25 @@ static void write_stats(double fps, double frametime_ms)
 
 static void present_frame(void)
 {
-    double now, dt;
+    double now, frame_dt, write_dt;
     ensure_initialized();
     g_frames++;
 
     now = now_seconds();
-    dt = now - g_last_write;
-    if (dt <= 0.0)
-        return;
 
-    /* Exponential moving average of the frame time. */
-    if (g_smoothed_frametime == 0.0)
-        g_smoothed_frametime = dt;
-    else
-        g_smoothed_frametime = g_smoothed_frametime * 0.9 + dt * 0.1;
+    /* Per-frame interval drives the frametime EMA. */
+    frame_dt = now - g_last_frame;
+    g_last_frame = now;
+    if (frame_dt > 0.0) {
+        if (g_smoothed_frametime == 0.0)
+            g_smoothed_frametime = frame_dt;
+        else
+            g_smoothed_frametime = g_smoothed_frametime * 0.9 + frame_dt * 0.1;
+    }
 
-    if (dt >= 0.5) {
-        double fps = (double)g_frames / dt;
+    write_dt = now - g_last_write;
+    if (write_dt >= 0.5) {
+        double fps = (double)g_frames / write_dt;
         write_stats(fps, g_smoothed_frametime * 1000.0);
         g_frames = 0;
         g_last_write = now;
@@ -135,8 +145,8 @@ static void present_frame(void)
 }
 
 /* --------------------------------------------------------------- trampolines */
-GAMOHUD_EXPORT VkResult vkQueuePresentKHR_gh(VkQueue queue,
-                                             const VkPresentInfoKHR *pPresentInfo)
+static VKAPI_ATTR VkResult VKAPI_CALL gh_QueuePresentKHR(
+    VkQueue queue, const VkPresentInfoKHR *pPresentInfo)
 {
     present_frame();
     if (g_next_present)
@@ -144,60 +154,121 @@ GAMOHUD_EXPORT VkResult vkQueuePresentKHR_gh(VkQueue queue,
     return VK_SUCCESS;
 }
 
-static VkResult gh_CreateDevice(VkPhysicalDevice physicalDevice,
-                                const VkDeviceCreateInfo *pCreateInfo,
-                                const VkAllocationCallbacks *pAllocator,
-                                VkDevice *pDevice)
+static VKAPI_ATTR VkResult VKAPI_CALL gh_CreateInstance(
+    const VkInstanceCreateInfo *pCreateInfo,
+    const VkAllocationCallbacks *pAllocator, VkInstance *pInstance)
 {
-    VkResult res;
-    if (!g_next_create_device)
-        return VK_ERROR_INITIALIZATION_FAILED;
-    res = g_next_create_device(physicalDevice, pCreateInfo, pAllocator, pDevice);
-    if (res == VK_SUCCESS && g_next_gdpa) {
-        PFN_vkVoidFunction fn = g_next_gdpa(*pDevice, "vkQueuePresentKHR");
-        g_next_present = (PFN_vkQueuePresentKHR)fn;
+    const VkLayerInstanceCreateInfo *chain = NULL;
+    const void *next = pCreateInfo ? pCreateInfo->pNext : NULL;
+
+    while (next) {
+        const VkLayerInstanceCreateInfo *info = (const VkLayerInstanceCreateInfo *)next;
+        if (info->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO &&
+            info->function == VK_LAYER_LINK_INFO) {
+            chain = info;
+            break;
+        }
+        next = info->pNext;
     }
-    return res;
+    if (chain && chain->u.pLayerInfo) {
+        g_next_gipa = chain->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+    }
+
+    if (!g_next_gipa)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    g_next_create_instance =
+        (PFN_vkCreateInstance)g_next_gipa(VK_NULL_HANDLE, "vkCreateInstance");
+    if (!g_next_create_instance)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    return g_next_create_instance(pCreateInfo, pAllocator, pInstance);
 }
 
-GAMOHUD_EXPORT PFN_vkVoidFunction vkGetDeviceProcAddr_gh(VkDevice device,
-                                                         const char *pName)
+static VKAPI_ATTR VkResult VKAPI_CALL gh_CreateDevice(
+    VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCreateInfo,
+    const VkAllocationCallbacks *pAllocator, VkDevice *pDevice)
+{
+    const VkLayerDeviceCreateInfo *chain = NULL;
+    const void *next = pCreateInfo ? pCreateInfo->pNext : NULL;
+
+    while (next) {
+        const VkLayerDeviceCreateInfo *info = (const VkLayerDeviceCreateInfo *)next;
+        if (info->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO &&
+            info->function == VK_LAYER_LINK_INFO) {
+            chain = info;
+            break;
+        }
+        next = info->pNext;
+    }
+    if (chain && chain->u.pLayerInfo) {
+        g_next_gdpa = chain->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+    }
+
+    if (!g_next_gdpa)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    g_next_create_device =
+        (PFN_vkCreateDevice)g_next_gdpa((VkDevice)physicalDevice, "vkCreateDevice");
+    if (!g_next_create_device)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    {
+        VkResult res = g_next_create_device(physicalDevice, pCreateInfo,
+                                            pAllocator, pDevice);
+        if (res == VK_SUCCESS) {
+            g_next_present = (PFN_vkQueuePresentKHR)g_next_gdpa(*pDevice,
+                                                               "vkQueuePresentKHR");
+        }
+        return res;
+    }
+}
+
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL gh_GetDeviceProcAddr(
+    VkDevice device, const char *pName)
 {
     if (!pName)
         return NULL;
     if (strcmp(pName, "vkGetDeviceProcAddr") == 0)
-        return (PFN_vkVoidFunction)vkGetDeviceProcAddr_gh;
+        return (PFN_vkVoidFunction)gh_GetDeviceProcAddr;
     if (strcmp(pName, "vkQueuePresentKHR") == 0)
-        return (PFN_vkVoidFunction)vkQueuePresentKHR_gh;
+        return (PFN_vkVoidFunction)gh_QueuePresentKHR;
     if (g_next_gdpa)
         return g_next_gdpa(device, pName);
     return NULL;
 }
 
-GAMOHUD_EXPORT PFN_vkVoidFunction vkGetInstanceProcAddr_gh(VkInstance instance,
-                                                           const char *pName)
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL gh_GetInstanceProcAddr(
+    VkInstance instance, const char *pName)
 {
     if (!pName)
         return NULL;
     if (strcmp(pName, "vkGetInstanceProcAddr") == 0)
-        return (PFN_vkVoidFunction)vkGetInstanceProcAddr_gh;
+        return (PFN_vkVoidFunction)gh_GetInstanceProcAddr;
+    if (strcmp(pName, "vkCreateInstance") == 0)
+        return (PFN_vkVoidFunction)gh_CreateInstance;
     if (strcmp(pName, "vkGetDeviceProcAddr") == 0)
-        return (PFN_vkVoidFunction)vkGetDeviceProcAddr_gh;
-    if (strcmp(pName, "vkQueuePresentKHR") == 0)
-        return (PFN_vkVoidFunction)vkQueuePresentKHR_gh;
-    if (strcmp(pName, "vkCreateDevice") == 0) {
-        if (g_next_gipa)
-            g_next_create_device =
-                (PFN_vkCreateDevice)g_next_gipa(instance, "vkCreateDevice");
+        return (PFN_vkVoidFunction)gh_GetDeviceProcAddr;
+    if (strcmp(pName, "vkCreateDevice") == 0)
         return (PFN_vkVoidFunction)gh_CreateDevice;
-    }
+    if (strcmp(pName, "vkQueuePresentKHR") == 0)
+        return (PFN_vkVoidFunction)gh_QueuePresentKHR;
     if (g_next_gipa)
         return g_next_gipa(instance, pName);
     return NULL;
 }
 
-GAMOHUD_EXPORT PFN_vkVoidFunction vkGetPhysicalDeviceProcAddr_gh(
-    VkInstance instance, const char *pName)
+GAMOHUD_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vkGetInstanceProcAddr_gh(VkInstance instance, const char *pName)
+{
+    return gh_GetInstanceProcAddr(instance, pName);
+}
+
+GAMOHUD_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vkGetDeviceProcAddr_gh(VkDevice device, const char *pName)
+{
+    return gh_GetDeviceProcAddr(device, pName);
+}
+
+GAMOHUD_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vkGetPhysicalDeviceProcAddr_gh(VkInstance instance, const char *pName)
 {
     (void)instance;
     (void)pName;
@@ -205,8 +276,8 @@ GAMOHUD_EXPORT PFN_vkVoidFunction vkGetPhysicalDeviceProcAddr_gh(
 }
 
 /* ------------------------------------------------------------- negotiation */
-GAMOHUD_EXPORT VkResult vkNegotiateLoaderLayerInterfaceVersion(
-    VkNegotiateLayerInterface *pVersionStruct)
+GAMOHUD_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
+vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct)
 {
     if (pVersionStruct == NULL ||
         pVersionStruct->sType != LAYER_NEGOTIATE_INTERFACE_STRUCT) {
@@ -217,11 +288,8 @@ GAMOHUD_EXPORT VkResult vkNegotiateLoaderLayerInterfaceVersion(
         pVersionStruct->loaderLayerInterfaceVersion = 2;
     }
 
-    g_next_gipa = pVersionStruct->pfnNextGetInstanceProcAddr;
-    g_next_gdpa = pVersionStruct->pfnNextGetDeviceProcAddr;
-
-    pVersionStruct->pfnGetInstanceProcAddr = vkGetInstanceProcAddr_gh;
-    pVersionStruct->pfnGetDeviceProcAddr = vkGetDeviceProcAddr_gh;
+    pVersionStruct->pfnGetInstanceProcAddr = gh_GetInstanceProcAddr;
+    pVersionStruct->pfnGetDeviceProcAddr = gh_GetDeviceProcAddr;
     pVersionStruct->pfnGetPhysicalDeviceProcAddr = vkGetPhysicalDeviceProcAddr_gh;
 
     return VK_SUCCESS;
