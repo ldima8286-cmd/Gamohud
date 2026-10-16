@@ -1,11 +1,36 @@
 # gamohud
 
-Автономное десктопное приложение (Qt GUI) с оверлеем производительности поверх
-окон. **MangoHud не требуется** — метрики собираются напрямую из `/proc` и
-`/sys` (а для NVIDIA — через `nvidia-smi`), профили хранятся в собственном
-формате, а игровой FPS подключается сменными бэкендами.
+Автономное десктопное приложение (Qt GUI) с оверлеем производительности поверх окон. **MangoHud не требуется** — метрики собираются напрямую из `/proc` и `/sys` (а для NVIDIA — через `nvidia-smi`), профили хранятся в собственном формате, а игровой FPS подключается сменными бэкендами.
 
-## Возможности
+## Быстрый старт
+
+**Самый простой путь (готовые бинарники)**
+
+1. Зайди в [Releases](https://github.com/ldima8286-cmd/mangohud-preset-manager-tui/releases).
+2. Скачай архив под свою ОС: `gamohud-windows-x64.zip` (Windows) или `gamohud-linux-x64.tar.gz` (Linux).
+3. Распакуй и запусти `gamohud-gui.exe` (Windows) или `gamohud-gui` (Linux).
+
+**Linux/macOS (одна команда из терминала)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ldima8286-cmd/mangohud-preset-manager-tui/main/install.sh | sh
+```
+
+**Из исходников (скачал репозиторий)**
+
+```bash
+git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
+cd mangohud-preset-manager-tui
+
+# Linux/macOS
+./run-gui.sh
+# Windows
+run-gui.bat
+```
+
+Первый запуск автоматически создаст `.venv` и поставит зависимости. Компилятор нужен **только** если ты хочешь собрать свой Vulkan-слой (см. ниже).
+
+# Возможности
 
 - **Оверлей в стиле MangoHud**: CPU/GPU load/temp/power/freq, VRAM/RAM, swap,
   сеть, диски, FPS/frametime. Настраиваются положение, шрифт, цвета, прозрачность,

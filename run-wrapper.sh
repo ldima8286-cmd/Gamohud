@@ -1,5 +1,9 @@
-#!/bin/bash
-# Dev launcher for gamohud-run (applies profiles / FPS backends to any command).
+#!/usr/bin/env bash
+# Launch `gamohud-run` from source: applies profiles / FPS backends to any command.
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYTHONPATH="$SCRIPT_DIR/.venv/lib/python3.13/site-packages:/var/data/python/lib/python3.13/site-packages:$PYTHONPATH"
-exec "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/src/run_wrapper.py" "$@"
+# shellcheck source=_bootstrap.sh
+. "$SCRIPT_DIR/_bootstrap.sh"
+
+exec "$PY" "$SCRIPT_DIR/src/run_wrapper.py" "$@"
