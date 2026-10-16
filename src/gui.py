@@ -195,12 +195,21 @@ class OverlayTab(QWidget):
         self.reload()
 
     def reload(self):
+        keep = self.current.name if self.current else self.app.store.active_overlay
+        self.list.blockSignals(True)
         self.list.clear()
         for p in self.app.store.overlay_profiles:
             tag = " (active)" if p.name == self.app.store.active_overlay else ""
             it = QListWidgetItem(f"{p.name}{tr(tag)}")
             it.setData(Qt.UserRole, p.name)
             self.list.addItem(it)
+        self.list.blockSignals(False)
+        if self.list.count():
+            row = next(
+                (i for i in range(self.list.count()) if self.list.item(i).data(Qt.UserRole) == keep),
+                0,
+            )
+            self.list.setCurrentRow(row)
 
     def on_select(self, row):
         if row < 0:
@@ -260,6 +269,7 @@ class OverlayTab(QWidget):
             self.app.store.delete_overlay(self.current.name)
         self.app.store.upsert_overlay(new)
         self.app.store.save()
+        self.current = new
         self.reload()
         self.app.refresh_overlay()
         self.app.status.showMessage(tr("Saved overlay profile '{name}'").format(name=new.name), 4000)
@@ -273,6 +283,7 @@ class OverlayTab(QWidget):
         p = OverlayProfile(name="new-profile")
         self.app.store.upsert_overlay(p)
         self.app.store.save()
+        self.current = p
         self.reload()
 
     def duplicate(self):
@@ -280,8 +291,10 @@ class OverlayTab(QWidget):
             return
         data = self.current.to_dict()
         data["name"] = self.current.name + "-copy"
-        self.app.store.upsert_overlay(OverlayProfile.from_dict(data))
+        p = OverlayProfile.from_dict(data)
+        self.app.store.upsert_overlay(p)
         self.app.store.save()
+        self.current = p
         self.reload()
 
     def delete(self):
@@ -386,13 +399,22 @@ class AppsTab(QWidget):
         self.reload()
 
     def reload(self):
+        keep = self.current.name if self.current else None
+        self.list.blockSignals(True)
         self.list.clear()
         for p in self.app.store.app_profiles:
             it = QListWidgetItem(p.name or tr("(unnamed)"))
             it.setData(Qt.UserRole, p.name)
             self.list.addItem(it)
+        self.list.blockSignals(False)
         self._reload_combos()
         self._reload_games()
+        if self.list.count():
+            row = next(
+                (i for i in range(self.list.count()) if self.list.item(i).data(Qt.UserRole) == keep),
+                0,
+            )
+            self.list.setCurrentRow(row)
 
     def _reload_combos(self):
         cur_ov = self.overlay_combo.currentText()
@@ -476,12 +498,15 @@ class AppsTab(QWidget):
             self.app.store.delete_app(old_name)
         self.app.store.upsert_app(new)
         self.app.store.save()
+        self.current = new
         self.reload()
         self.app.status.showMessage(tr("Saved app profile '{name}'").format(name=new.name), 4000)
 
     def new(self):
-        self.app.store.upsert_app(AppProfile(name="new-app"))
+        p = AppProfile(name="new-app")
+        self.app.store.upsert_app(p)
         self.app.store.save()
+        self.current = p
         self.reload()
 
     def delete(self):
