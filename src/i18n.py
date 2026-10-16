@@ -66,6 +66,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "Overlay locked": "Оверлей заблокирован",
         "Overlay unlocked - drag it with the mouse": "Оверлей разблокирован — перетащите его мышью",
         "Overlay position saved": "Позиция оверлея сохранена",
+        "Overlay set to stay above other windows (KWin)": "Оверлей закреплён поверх других окон (KWin)",
+        "Keep-above unavailable: {reason}": "Закрепление поверх окон недоступно: {reason}",
         # apps tab
         "Application profile": "Профиль приложения",
         "Match processes": "Совпадение процессов",

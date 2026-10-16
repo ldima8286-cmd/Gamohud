@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
+from src.keep_above import KeepAbove
 from src.metrics import (
     METRICS,
     collect_all,
@@ -725,6 +726,7 @@ class MainWindow(QMainWindow):
         self.start_overlay_enabled = True
         self.auto_switch_enabled = True
         self.overlay_locked = self.store.overlay_locked
+        self.keep_above = KeepAbove()
 
         set_language(self.store.language)
         self.setWindowTitle("Gamohud")
@@ -747,6 +749,7 @@ class MainWindow(QMainWindow):
         self._lock_shortcut.activated.connect(self.toggle_overlay_lock)
         self.status = self.statusBar()
         self.status.showMessage(tr("Ready"), 3000)
+        self._enable_keep_above()
 
     def _build_tabs(self):
         self.tabs = QTabWidget()
@@ -780,9 +783,19 @@ class MainWindow(QMainWindow):
         self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
         self.overlay.show()
+        self.keep_above.reapply()
 
     def _wire_overlay(self, overlay):
         overlay.on_position_changed = self._overlay_moved
+
+    def _enable_keep_above(self):
+        if not self.keep_above.available:
+            return
+        ok, msg = self.keep_above.enable()
+        if ok:
+            self.status.showMessage(tr("Overlay set to stay above other windows (KWin)"), 4000)
+        else:
+            self.status.showMessage(tr("Keep-above unavailable: {reason}").format(reason=msg), 6000)
 
     def _overlay_moved(self):
         self.store.save()
@@ -795,6 +808,7 @@ class MainWindow(QMainWindow):
         self.store.save()
         if self.overlay is not None:
             self.overlay.set_locked(self.overlay_locked)
+        self.keep_above.reapply()
         self.overlay_tab.sync_lock_button()
         if hasattr(self, "act_move"):
             self.act_move.blockSignals(True)
@@ -827,6 +841,7 @@ class MainWindow(QMainWindow):
         self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
         self.overlay.show()
+        self.keep_above.reapply()
 
     def _auto_switch(self):
         if self.overlay is None or not self.auto_switch_enabled:

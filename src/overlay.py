@@ -77,6 +77,8 @@ class OverlayWindow(QWidget):
         self.profile = profile
         self._rows: dict[str, tuple[QLabel, QLabel]] = {}
 
+        self.setWindowTitle("gamohud-overlay")
+
         # Locked == click-through (mouse passes to the game). Unlocked makes the
         # window interactive so it can be dragged with the mouse.
         self.locked = bool(getattr(profile, "click_through", True))
