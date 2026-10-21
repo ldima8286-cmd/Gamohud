@@ -49,6 +49,8 @@ from src.profiles import (
     ProfileStore,
     default_overlay_profiles,
     find_profile,
+    find_profile_by_window,
+    active_window_title,
     running_process_names,
 )
 from src.launcher import launch as launch_profile
@@ -652,6 +654,8 @@ class SettingsTab(QWidget):
         gf.addRow(self.start_overlay)
         self.auto_switch = QCheckBox(tr("Auto-switch overlay by running process"))
         gf.addRow(self.auto_switch)
+        self.autostart = QCheckBox(tr("Launch gamohud at login"))
+        gf.addRow(self.autostart)
         self.active_combo = QComboBox()
         gf.addRow(tr("Default overlay profile"), self.active_combo)
         root.addWidget(general)
@@ -685,6 +689,12 @@ class SettingsTab(QWidget):
         self._sync_desc()
         self.start_overlay.setChecked(self.app.start_overlay_enabled)
         self.auto_switch.setChecked(self.app.auto_switch_enabled)
+        try:
+            from src import autostart
+            self.autostart.setChecked(autostart.is_enabled())
+        except Exception:
+            self.autostart.setChecked(False)
+            self.autostart.setEnabled(False)
         self.active_combo.clear()
         for p in self.app.store.overlay_profiles:
             self.active_combo.addItem(p.name)
@@ -735,6 +745,7 @@ class SettingsTab(QWidget):
         self.app.start_overlay_enabled = self.start_overlay.isChecked()
         self.app.auto_switch_enabled = self.auto_switch.isChecked()
         self.app.store.save()
+        self._sync_autostart()
         self.app.fps_manager.set_backend(self.app.store.global_fps_backend)
         self.app.refresh_overlay()
         self.app.status.showMessage(tr("Settings saved"), 4000)
@@ -745,6 +756,24 @@ class SettingsTab(QWidget):
             set_language(new_lang)
             self.app.rebuild_ui()
             self.app.status.showMessage(tr("Settings saved"), 4000)
+
+    def _sync_autostart(self):
+        try:
+            from src import autostart
+        except Exception:
+            return
+        want = self.autostart.isChecked()
+        try:
+            if want and not autostart.is_enabled():
+                path = autostart.enable()
+                self.app.status.showMessage(
+                    tr("Autostart enabled: {path}").format(path=str(path)), 6000
+                )
+            elif not want and autostart.is_enabled():
+                autostart.disable()
+                self.app.status.showMessage(tr("Autostart disabled"), 6000)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, tr("Autostart"), str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -889,6 +918,8 @@ class MainWindow(QMainWindow):
             return
         names = running_process_names(limit=200)
         matched = find_profile(self.store.app_profiles, names)
+        if matched is None:
+            matched = find_profile_by_window(self.store.app_profiles, active_window_title())
         target_name = None
         if matched and matched.overlay:
             target_name = matched.overlay
