@@ -33,6 +33,43 @@ METRICS = {
 DEFAULT_METRICS = ["fps", "frametime", "cpu_usage", "gpu_usage", "gpu_temp", "ram_percent"]
 
 
+# Layout presets: one-click metric sets for the overlay.
+# key -> (label, description, metrics)
+LAYOUT_PRESETS = {
+    "compact": (
+        "Compact",
+        "Just FPS and the two loads",
+        ["fps", "cpu_usage", "gpu_usage"],
+    ),
+    "detailed": (
+        "Detailed",
+        "FPS, frametime, loads, temperatures and memory",
+        [
+            "fps", "frametime", "cpu_usage", "cpu_temp",
+            "gpu_usage", "gpu_temp", "gpu_mem_usage", "ram_percent",
+        ],
+    ),
+    "power": (
+        "Power",
+        "Clocks, power draw and fan speeds",
+        [
+            "fps", "cpu_freq", "cpu_power", "cpu_fan",
+            "gpu_freq", "gpu_power", "gpu_fan", "gpu_temp",
+        ],
+    ),
+    "memory": (
+        "Memory",
+        "VRAM, RAM and swap",
+        ["fps", "gpu_mem_used", "gpu_mem_usage", "ram_used", "ram_percent", "swap_percent"],
+    ),
+    "network": (
+        "Network",
+        "FPS, network and disk throughput",
+        ["fps", "net_up", "net_down", "disk_read", "disk_write"],
+    ),
+}
+
+
 def available_metric_keys() -> list[str]:
     return list(METRICS.keys())
 

@@ -1,6 +1,6 @@
 [project]
 name = "gamohud"
-version = "0.1.1"
+version = "0.2.0"
 description = "Gamohud - standalone performance overlay and app launcher (no MangoHud required)"
 requires-python = ">=3.10"
 dependencies = [

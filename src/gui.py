@@ -181,6 +181,21 @@ class OverlayTab(QWidget):
             mf.addRow(cb)
         rl.addWidget(metrics)
 
+        presets = QGroupBox(tr("Presets"))
+        pf = QVBoxLayout(presets)
+        preset_hint = QLabel(tr("Apply a ready-made metric set to this profile."))
+        preset_hint.setWordWrap(True)
+        pf.addWidget(preset_hint)
+        preset_row = QHBoxLayout()
+        from src.metrics import LAYOUT_PRESETS
+        for key, (label, desc, keys) in LAYOUT_PRESETS.items():
+            b = QPushButton(tr(label))
+            b.setToolTip(tr(desc))
+            b.clicked.connect(lambda _=False, k=key: self.apply_preset(k))
+            preset_row.addWidget(b)
+        pf.addLayout(preset_row)
+        rl.addWidget(presets)
+
         btn_row = QHBoxLayout()
         save = QPushButton(tr("Save"))
         save.clicked.connect(self.save)
@@ -288,6 +303,20 @@ class OverlayTab(QWidget):
         if not self.current:
             return
         self.app.preview_overlay(self._collect())
+
+    def apply_preset(self, key):
+        from src.metrics import LAYOUT_PRESETS
+        preset = LAYOUT_PRESETS.get(key)
+        if preset is None:
+            return
+        _, _, keys = preset
+        wanted = set(keys)
+        for k, cb in self.checks.items():
+            cb.setChecked(k in wanted)
+        self.graph.setChecked("fps" in wanted)
+        self.app.status.showMessage(
+            tr("Applied preset '{name}'").format(name=tr(preset[0])), 4000
+        )
 
     def _on_lock_toggled(self, checked):
         self.app.set_overlay_locked(not checked)
