@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.platform_utils import IS_LINUX
+
 from ..base import BackendStatus, FPSBackend
 
 

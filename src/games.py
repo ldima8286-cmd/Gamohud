@@ -1,8 +1,8 @@
 import json
 import os
 import re
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from dataclasses import dataclass, asdict
 
 from src.platform_utils import config_dir
 

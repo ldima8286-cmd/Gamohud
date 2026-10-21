@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 from src.platform_utils import IS_WINDOWS, config_dir, runtime_dir
+
 from ..base import BackendStatus, FPSBackend
 
 _LAYER_NAME = "VK_LAYER_GAMOHUD_overlay"

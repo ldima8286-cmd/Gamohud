@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from src.platform_utils import IS_LINUX
+
 from ..base import BackendStatus, FPSBackend
 
 

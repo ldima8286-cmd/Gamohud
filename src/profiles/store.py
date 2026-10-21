@@ -1,7 +1,6 @@
 """Load / save overlay and application profiles as YAML."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from src.platform_utils import config_dir
@@ -32,6 +31,7 @@ class ProfileStore:
         self.global_fps_backend: str = "vulkan_layer"
         self.language: str = "en"
         self.overlay_locked: bool = True
+        self.check_updates_on_start: bool = True
         self.load()
 
     def load(self) -> None:
@@ -54,6 +54,7 @@ class ProfileStore:
         self.global_fps_backend = data.get("global_fps_backend", "vulkan_layer")
         self.language = data.get("language", "en")
         self.overlay_locked = bool(data.get("overlay_locked", True))
+        self.check_updates_on_start = bool(data.get("check_updates_on_start", True))
         if not self.app_profiles:
             self.app_profiles = default_app_profiles()
 
@@ -64,6 +65,7 @@ class ProfileStore:
             "global_fps_backend": self.global_fps_backend,
             "language": self.language,
             "overlay_locked": self.overlay_locked,
+            "check_updates_on_start": self.check_updates_on_start,
             "overlay_profiles": [p.to_dict() for p in self.overlay_profiles],
             "app_profiles": [p.to_dict() for p in self.app_profiles],
         }

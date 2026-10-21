@@ -4,7 +4,6 @@ from __future__ import annotations
 from . import gpu as _gpu
 from . import system as _system
 
-
 # key -> (label, unit, formatter)
 METRICS = {
     "fps": ("FPS", "", lambda v: f"{v:.0f}"),

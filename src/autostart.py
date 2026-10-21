@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-from .platform_utils import IS_MACOS, IS_WINDOWS, config_dir
+from .platform_utils import IS_MACOS, IS_WINDOWS
 
 APP_NAME = "gamohud"
 LINUX_AUTOSTART = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "autostart"

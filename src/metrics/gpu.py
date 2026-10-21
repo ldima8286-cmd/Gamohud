@@ -14,7 +14,6 @@ from pathlib import Path
 
 from src.platform_utils import CREATE_NO_WINDOW
 
-
 IS_LINUX = sys.platform.startswith("linux")
 IS_WINDOWS = os.name == "nt"
 
@@ -200,7 +199,7 @@ def _windows_gpu_name() -> str | None:
                 capture_output=True, text=True, timeout=5,
                 creationflags=CREATE_NO_WINDOW,
             )
-            lines = [l.strip() for l in out.stdout.splitlines() if l.strip()]
+            lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
             if len(lines) > 1:
                 return lines[1]
         except Exception:
@@ -220,7 +219,6 @@ def windows_gpu() -> dict:
     except Exception:
         return data
     vendor = None
-    sensors = {}
     try:
         for s in c.Sensor():
             name = (s.Name or "").lower()

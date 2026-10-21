@@ -10,7 +10,6 @@ import sys
 import time
 from pathlib import Path
 
-
 IS_LINUX = sys.platform.startswith("linux")
 IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"

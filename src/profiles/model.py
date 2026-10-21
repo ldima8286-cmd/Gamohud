@@ -5,7 +5,6 @@ from dataclasses import asdict, dataclass, field
 
 from ..metrics import DEFAULT_METRICS
 
-
 POSITIONS = [
     "top-left", "top-center", "top-right",
     "middle-left", "center", "middle-right",

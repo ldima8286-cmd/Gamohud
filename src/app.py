@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 from pathlib import Path
 
 if getattr(sys, "frozen", False):

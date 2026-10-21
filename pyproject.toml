@@ -16,3 +16,19 @@ windows = [
     "wmi>=1.5.1; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",
 ]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501", "B008", "E702"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

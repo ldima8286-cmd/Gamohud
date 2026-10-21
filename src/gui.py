@@ -1,38 +1,40 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QColor, QAction, QIcon, QPixmap, QShortcut, QKeySequence
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QTabWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QListWidget,
-    QListWidgetItem,
-    QPlainTextEdit,
-    QPushButton,
-    QLabel,
-    QLineEdit,
-    QFileDialog,
-    QComboBox,
-    QSpinBox,
-    QDoubleSpinBox,
     QCheckBox,
     QColorDialog,
-    QMessageBox,
-    QInputDialog,
-    QSystemTrayIcon,
-    QMenu,
-    QGroupBox,
+    QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QScrollArea,
+    QSpinBox,
+    QSystemTrayIcon,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
+from src import games as games_mod
+from src.fps import FPSManager
+from src.i18n import LANGUAGES, get_language, set_language, tr
 from src.keep_above import KeepAbove
+from src.launcher import launch as launch_profile
 from src.metrics import (
     METRICS,
     collect_all,
@@ -40,22 +42,18 @@ from src.metrics import (
     metric_label,
     metric_unit,
 )
-from src.fps import FPSManager
 from src.overlay import OverlayWindow
+from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
 from src.profiles import (
     POSITIONS,
     AppProfile,
     OverlayProfile,
     ProfileStore,
-    default_overlay_profiles,
+    active_window_title,
     find_profile,
     find_profile_by_window,
-    active_window_title,
     running_process_names,
 )
-from src.launcher import launch as launch_profile
-from src import games as games_mod
-from src.i18n import LANGUAGES, get_language, set_language, tr
 
 
 class DashboardTab(QWidget):
@@ -190,7 +188,7 @@ class OverlayTab(QWidget):
         pf.addWidget(preset_hint)
         preset_row = QHBoxLayout()
         from src.metrics import LAYOUT_PRESETS
-        for key, (label, desc, keys) in LAYOUT_PRESETS.items():
+        for key, (label, desc, _keys) in LAYOUT_PRESETS.items():
             b = QPushButton(tr(label))
             b.setToolTip(tr(desc))
             b.clicked.connect(lambda _=False, k=key: self.apply_preset(k))
@@ -625,6 +623,24 @@ class _PresentMonDownloader(QThread):
             self.err.emit(str(exc))
 
 
+class _UpdateChecker(QThread):
+    found = Signal(dict)
+    none = Signal()
+
+    def run(self):
+        try:
+            from src.update_check import is_newer, latest_release
+            from src.version import __version__
+
+            release = latest_release()
+            if release and is_newer(release.get("tag", ""), __version__):
+                self.found.emit(release)
+                return
+        except Exception:
+            pass
+        self.none.emit()
+
+
 class SettingsTab(QWidget):
     def __init__(self, app):
         super().__init__()
@@ -656,6 +672,12 @@ class SettingsTab(QWidget):
         gf.addRow(self.auto_switch)
         self.autostart = QCheckBox(tr("Launch gamohud at login"))
         gf.addRow(self.autostart)
+        self.check_updates = QPushButton(tr("Check for updates"))
+        self.check_updates.clicked.connect(self.run_update_check)
+        gf.addRow(self.check_updates)
+        self._update_worker = None
+        self.check_updates_start = QCheckBox(tr("Check for updates on startup"))
+        gf.addRow(self.check_updates_start)
         self.active_combo = QComboBox()
         gf.addRow(tr("Default overlay profile"), self.active_combo)
         root.addWidget(general)
@@ -689,6 +711,7 @@ class SettingsTab(QWidget):
         self._sync_desc()
         self.start_overlay.setChecked(self.app.start_overlay_enabled)
         self.auto_switch.setChecked(self.app.auto_switch_enabled)
+        self.check_updates_start.setChecked(getattr(self.app.store, "check_updates_on_start", True))
         try:
             from src import autostart
             self.autostart.setChecked(autostart.is_enabled())
@@ -744,6 +767,7 @@ class SettingsTab(QWidget):
         self.app.store.active_overlay = self.active_combo.currentText()
         self.app.start_overlay_enabled = self.start_overlay.isChecked()
         self.app.auto_switch_enabled = self.auto_switch.isChecked()
+        self.app.store.check_updates_on_start = self.check_updates_start.isChecked()
         self.app.store.save()
         self._sync_autostart()
         self.app.fps_manager.set_backend(self.app.store.global_fps_backend)
@@ -774,6 +798,52 @@ class SettingsTab(QWidget):
                 self.app.status.showMessage(tr("Autostart disabled"), 6000)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, tr("Autostart"), str(exc))
+
+    def run_update_check(self):
+        if self._update_worker is not None:
+            return
+        self.check_updates.setEnabled(False)
+        self.check_updates.setText(tr("Checking..."))
+        self._update_worker = _UpdateChecker(self)
+        self._update_worker.found.connect(self._on_update_found)
+        self._update_worker.none.connect(self._on_update_none)
+        self._update_worker.start()
+
+    def _reset_update_button(self):
+        self.check_updates.setEnabled(True)
+        self.check_updates.setText(tr("Check for updates"))
+        self._update_worker = None
+
+    def _on_update_found(self, release):
+        self._reset_update_button()
+        from src.version import __version__
+        answer = QMessageBox.information(
+            self,
+            tr("Update available"),
+            tr("gamohud {new} is available (you have {current}).\n\nOpen the download page?").format(
+                new=release.get("name") or release.get("tag"), current=__version__
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes:
+            self._open_release(release.get("url"))
+
+    def _on_update_none(self):
+        self._reset_update_button()
+        from src.version import __version__
+        QMessageBox.information(
+            self, tr("Check for updates"),
+            tr("You are up to date (gamohud {version}).").format(version=__version__),
+        )
+
+    def _open_release(self, url):
+        if not url:
+            return
+        import subprocess
+        try:
+            subprocess.Popen(open_uri_command(url))
+        except Exception:
+            pass
 
 
 class MainWindow(QMainWindow):

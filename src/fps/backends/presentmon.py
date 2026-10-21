@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from src.platform_utils import IS_WINDOWS, runtime_dir
+
 from ..base import BackendStatus, FPSBackend
 from ..presentmon_common import FPS_FILENAME, find_presentmon, target_process_name
 

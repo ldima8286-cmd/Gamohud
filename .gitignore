@@ -11,3 +11,6 @@ build/
 *.o
 *.obj
 tools/presentmon/
+.pytest_cache/
+.ruff_cache/
+.vscode/

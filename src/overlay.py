@@ -1,12 +1,10 @@
 """Standalone, profile-driven always-on-top overlay window (no MangoHud)."""
 from __future__ import annotations
 
-import os
 from collections import deque
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
-from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
@@ -275,7 +273,7 @@ class OverlayWindow(QWidget):
     def _apply_style(self):
         p = self.profile
         weight = "700" if p.font_bold else "400"
-        for key, (name, value) in self._rows.items():
+        for _key, (name, value) in self._rows.items():
             name.setStyleSheet(
                 f"color: {p.label_color}; font-size: {p.font_size}px; font-weight: {weight};"
                 f" letter-spacing: 1px;"
