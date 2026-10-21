@@ -8,6 +8,9 @@ from . import system as _system
 # key -> (label, unit, formatter)
 METRICS = {
     "fps": ("FPS", "", lambda v: f"{v:.0f}"),
+    "fps_avg": ("AVG FPS", "", lambda v: f"{v:.0f}"),
+    "fps_1low": ("1% LOW", "", lambda v: f"{v:.0f}"),
+    "fps_01low": ("0.1% LOW", "", lambda v: f"{v:.0f}"),
     "frametime": ("Frame", "ms", lambda v: f"{v:.1f}"),
     "cpu_usage": ("CPU", "%", lambda v: f"{v:.0f}"),
     "cpu_freq": ("CPU CLK", "MHz", lambda v: f"{v:.0f}"),
@@ -66,6 +69,11 @@ LAYOUT_PRESETS = {
         "Network",
         "FPS, network and disk throughput",
         ["fps", "net_up", "net_down", "disk_read", "disk_write"],
+    ),
+    "smoothness": (
+        "Smoothness",
+        "FPS with 1% and 0.1% low frame rates",
+        ["fps", "fps_avg", "fps_1low", "fps_01low", "frametime"],
     ),
 }
 

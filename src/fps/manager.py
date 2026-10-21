@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .backends import all_backends
 from .base import BackendStatus, FPSBackend
+from .stats import FPSStats
 
 
 class FPSManager:
@@ -10,6 +11,7 @@ class FPSManager:
     def __init__(self, name: str = "null"):
         self._backends = {b.name: b for b in all_backends()}
         self._backend = self._backends.get("null")
+        self._stats = FPSStats()
         self.set_backend(name)
 
     def backends(self) -> list[FPSBackend]:
@@ -38,6 +40,7 @@ class FPSManager:
             except Exception:
                 pass
         self._backend = backend
+        self._stats.reset()
         return True
 
     def available(self, name: str) -> BackendStatus:
@@ -59,7 +62,17 @@ class FPSManager:
         self._backend.stop()
 
     def read(self) -> dict | None:
-        return self._backend.read()
+        data = self._backend.read()
+        if data and data.get("fps") is not None:
+            self._stats.add(data.get("fps"))
+        summary = self._stats.summary()
+        if data is None:
+            return summary or None
+        data.update(summary)
+        return data
+
+    def reset_stats(self) -> None:
+        self._stats.reset()
 
     def is_env_only(self) -> bool:
         return self._backend.env_only
