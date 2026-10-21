@@ -155,6 +155,18 @@ class OverlayWindow(QWidget):
         if was_visible:
             self.show()
             self.raise_()
+            self._restore_position()
+
+    def _restore_position(self):
+        """Re-apply the saved position after setWindowFlags()+show() re-mapped.
+
+        On Wayland the re-created surface lands at the compositor's default
+        spot (screen centre), so locking/unlocking would otherwise reset a
+        custom drag position.
+        """
+        if self._drag_offset is not None or self._system_moving:
+            return
+        self._reposition(force=True)
 
     def set_locked(self, locked: bool):
         """Lock (click-through, cannot be dragged) or unlock the overlay."""
@@ -168,6 +180,7 @@ class OverlayWindow(QWidget):
         if not locked:
             self.show()
             self.raise_()
+            self._restore_position()
 
     # -- mouse dragging ---------------------------------------------------
     def mousePressEvent(self, event):
