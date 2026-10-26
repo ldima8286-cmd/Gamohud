@@ -46,3 +46,11 @@ jobs:
             tail -200 pytest.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          from pathlib import Path
+          log = Path("pytest.log")
+          text = log.read_text(errors="replace") if log.exists() else "pytest.log missing"
+          msg = "\n".join(text.strip().splitlines()[-40:])
+          msg = msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Pytest failure::{msg}")
+          PY
