@@ -1,8 +1,8 @@
 """Small shared Qt widgets and helpers used by the gamohud tabs.
 
 Everything here is deliberately theme-aware: colors are taken from the
-application palette (Fusion dark/light, Windows, KDE, ...), so the GUI keeps
-looking native instead of shipping a hard-coded theme.
+application palette, which ``src.theme`` updates for the light/dark modes.
+Cards and frames are styled globally so switching the theme is instant.
 """
 from __future__ import annotations
 
@@ -39,36 +39,6 @@ def _color(role: QPalette.ColorRole) -> QColor:
 def muted_color() -> str:
     """Theme-aware color for secondary text."""
     return _color(QPalette.ColorRole.PlaceholderText).name()
-
-
-def _border_color() -> str:
-    return _color(QPalette.ColorRole.Mid).name()
-
-
-def apply_app_style() -> None:
-    """Comfortable padding for form controls and tabs (theme-neutral)."""
-    app = QApplication.instance()
-    if app is None:
-        return
-    app.setStyleSheet(
-        """
-        QLineEdit, QComboBox, QPlainTextEdit {
-            padding: 4px 6px;
-        }
-        QPushButton {
-            padding: 5px 12px;
-        }
-        QListWidget {
-            padding: 4px;
-        }
-        QTabBar::tab {
-            padding: 7px 16px;
-        }
-        QTabWidget::pane {
-            border: none;
-        }
-        """
-    )
 
 
 def page_header(title: str, subtitle: str = "") -> QWidget:
@@ -116,14 +86,8 @@ def hint_label(text: str) -> QLabel:
 
 
 def group_box(title: str) -> QGroupBox:
-    """QGroupBox with a visible rounded frame on dark Fusion themes."""
-    box = QGroupBox(title)
-    box.setStyleSheet(
-        f"QGroupBox {{ border: 1px solid {_border_color()}; border-radius: 8px;"
-        f" margin-top: 10px; padding-top: 6px; }}"
-        f"QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; }}"
-    )
-    return box
+    """Card-like QGroupBox; its frame comes from the global theme."""
+    return QGroupBox(title)
 
 
 class MetricTile(QFrame):
@@ -134,19 +98,16 @@ class MetricTile(QFrame):
         self.setObjectName("metricTile")
         self.setMinimumHeight(62)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet(
-            f"QFrame#metricTile {{ background: {_color(QPalette.ColorRole.AlternateBase).name()};"
-            f" border: 1px solid {_border_color()}; border-radius: 9px; }}"
-        )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 7, 12, 7)
+        layout.setContentsMargins(13, 8, 13, 8)
         layout.setSpacing(2)
 
         self.name = QLabel(label)
         name_font = self.name.font()
         name_font.setPointSizeF(max(8.0, name_font.pointSizeF() * 0.9))
         name_font.setWeight(QFont.Medium)
+        name_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.4)
         self.name.setFont(name_font)
         self.name.setStyleSheet(f"color: {muted_color()};")
 

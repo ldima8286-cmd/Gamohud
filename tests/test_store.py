@@ -40,3 +40,19 @@ def test_store_delete_overlay_falls_back(tmp_path):
     store.overlay_profiles = [OverlayProfile(name="only")]
     store.delete_overlay("only")
     assert store.overlay_profiles
+
+
+def test_store_theme_roundtrip(tmp_path):
+    path = tmp_path / "profiles.yaml"
+    store = ProfileStore(path)
+    store.theme = "light"
+    store.save()
+
+    assert ProfileStore(path).theme == "light"
+
+
+def test_store_invalid_theme_falls_back_to_dark(tmp_path):
+    path = tmp_path / "profiles.yaml"
+    path.write_text("theme: neon\n", encoding="utf-8")
+
+    assert ProfileStore(path).theme == "dark"

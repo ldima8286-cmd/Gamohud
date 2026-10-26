@@ -31,6 +31,7 @@ class ProfileStore:
         self.active_overlay: str = "default"
         self.global_fps_backend: str = "vulkan_layer"
         self.language: str = system_language()
+        self.theme: str = "dark"
         self.overlay_locked: bool = True
         self.check_updates_on_start: bool = True
         self.load()
@@ -54,6 +55,8 @@ class ProfileStore:
         self.active_overlay = data.get("active_overlay", self.overlay_profiles[0].name)
         self.global_fps_backend = data.get("global_fps_backend", "vulkan_layer")
         self.language = data.get("language", self.language)
+        theme = data.get("theme", "dark")
+        self.theme = theme if theme in ("dark", "light", "system") else "dark"
         self.overlay_locked = bool(data.get("overlay_locked", True))
         self.check_updates_on_start = bool(data.get("check_updates_on_start", True))
         if not self.app_profiles:
@@ -65,6 +68,7 @@ class ProfileStore:
             "active_overlay": self.active_overlay,
             "global_fps_backend": self.global_fps_backend,
             "language": self.language,
+            "theme": self.theme,
             "overlay_locked": self.overlay_locked,
             "check_updates_on_start": self.check_updates_on_start,
             "overlay_profiles": [p.to_dict() for p in self.overlay_profiles],

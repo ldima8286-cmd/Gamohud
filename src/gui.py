@@ -55,10 +55,16 @@ from src.profiles import (
     find_profile_by_window,
     running_process_names,
 )
+from src.theme import (
+    THEME_LABELS,
+    THEME_MODES,
+    apply_theme,
+    resolved_theme,
+    warning_color,
+)
 from src.ui_utils import (
     MetricTile,
     StatusBanner,
-    apply_app_style,
     color_button,
     form_label,
     group_box,
@@ -159,7 +165,7 @@ class OverlayTab(QWidget):
         body.setSpacing(14)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(210)
+        left_panel.setFixedWidth(190)
         left = QVBoxLayout(left_panel)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(8)
@@ -336,6 +342,7 @@ class OverlayTab(QWidget):
 
         btn_row = QHBoxLayout()
         save = QPushButton(tr("Save"))
+        save.setObjectName("primary")
         save.setDefault(True)
         save.clicked.connect(self.save)
         preview = QPushButton(tr("Apply / Preview"))
@@ -529,7 +536,7 @@ class AppsTab(QWidget):
         body.setSpacing(14)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(210)
+        left_panel.setFixedWidth(190)
         left = QVBoxLayout(left_panel)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(8)
@@ -614,6 +621,7 @@ class AppsTab(QWidget):
 
         btns = QHBoxLayout()
         save = QPushButton(tr("Save"))
+        save.setObjectName("primary")
         save.setDefault(True)
         save.clicked.connect(self.save)
         run = QPushButton(tr("Launch"))
@@ -875,6 +883,11 @@ class SettingsTab(QWidget):
         for code in LANGUAGES:
             self.language_combo.addItem(LANGUAGES[code], code)
         gf.addRow(tr("Language"), self.language_combo)
+        self.theme_combo = QComboBox()
+        for mode in THEME_MODES:
+            self.theme_combo.addItem(tr(THEME_LABELS[mode]), mode)
+        self.theme_combo.setToolTip("Ctrl+Shift+D")
+        gf.addRow(tr("Theme"), self.theme_combo)
         self.start_overlay = QCheckBox(tr("Start overlay when the app launches"))
         gf.addRow(self.start_overlay)
         self.auto_switch = QCheckBox(tr("Auto-switch overlay by running process"))
@@ -906,6 +919,7 @@ class SettingsTab(QWidget):
 
         bar = QHBoxLayout()
         save = QPushButton(tr("Save"))
+        save.setObjectName("primary")
         save.setDefault(True)
         save.clicked.connect(self.apply)
         bar.addWidget(save)
@@ -917,6 +931,7 @@ class SettingsTab(QWidget):
 
         self.reload()
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self.backend_combo.currentIndexChanged.connect(self._sync_desc)
 
     def _on_language_changed(self, _index):
@@ -927,6 +942,11 @@ class SettingsTab(QWidget):
         self.app.store.save()
         set_language(code)
         QTimer.singleShot(0, self.app.rebuild_ui)
+
+    def _on_theme_changed(self, _index):
+        mode = self.theme_combo.currentData()
+        if mode:
+            self.app.set_theme(mode)
 
     def reload(self):
         self.backend_combo.clear()
@@ -954,6 +974,9 @@ class SettingsTab(QWidget):
         idx = self.language_combo.findData(get_language())
         if idx >= 0:
             self.language_combo.setCurrentIndex(idx)
+        idx = self.theme_combo.findData(self.app.store.theme)
+        if idx >= 0:
+            self.theme_combo.setCurrentIndex(idx)
 
     def _sync_desc(self):
         name = self.backend_combo.currentData()
@@ -962,7 +985,7 @@ class SettingsTab(QWidget):
         text = tr(backend.description) if backend else ""
         if status and not status.available:
             text += "  (" + tr("Unavailable: {reason}").format(reason=tr(status.reason)) + ")"
-            self.backend_desc.setStyleSheet("color: #e5a50a;")
+            self.backend_desc.setStyleSheet(f"color: {warning_color()};")
         else:
             self.backend_desc.setStyleSheet("")
         self.backend_desc.setText(text)
@@ -1088,7 +1111,7 @@ class MainWindow(QMainWindow):
         self.overlay_locked = self.store.overlay_locked
         self.keep_above = KeepAbove()
 
-        apply_app_style()
+        apply_theme(QApplication.instance(), self.store.theme)
         set_language(self.store.language)
         self.setWindowTitle("Gamohud")
         self.resize(1040, 700)
@@ -1109,6 +1132,8 @@ class MainWindow(QMainWindow):
         self._build_tray()
         self._lock_shortcut = QShortcut(QKeySequence("Ctrl+Shift+L"), self)
         self._lock_shortcut.activated.connect(self.toggle_overlay_lock)
+        self._theme_shortcut = QShortcut(QKeySequence("Ctrl+Shift+D"), self)
+        self._theme_shortcut.activated.connect(self.toggle_theme)
         self.status = self.statusBar()
         self.status.showMessage(tr("Ready"), 3000)
         self._enable_keep_above()
@@ -1133,6 +1158,30 @@ class MainWindow(QMainWindow):
         if 0 <= index < self.tabs.count():
             self.tabs.setCurrentIndex(index)
         old.deleteLater()
+
+    def set_theme(self, mode: str):
+        if mode not in THEME_MODES:
+            mode = "dark"
+        changed = mode != self.store.theme
+        self.store.theme = mode
+        if changed:
+            self.store.save()
+        apply_theme(QApplication.instance(), mode)
+        self._sync_theme_action()
+        if changed:
+            QTimer.singleShot(0, self.rebuild_ui)
+
+    def toggle_theme(self):
+        concrete = resolved_theme(self.store.theme)
+        self.set_theme("light" if concrete == "dark" else "dark")
+
+    def _sync_theme_action(self):
+        action = getattr(self, "act_theme", None)
+        if action is None:
+            return
+        action.blockSignals(True)
+        action.setChecked(resolved_theme(self.store.theme) == "dark")
+        action.blockSignals(False)
 
     def current_overlay_name(self):
         return self._overlay_profile_name or self.store.active_overlay
@@ -1264,15 +1313,22 @@ class MainWindow(QMainWindow):
         self.act_move.setCheckable(True)
         self.act_move.setChecked(not self.overlay_locked)
         self.act_move.toggled.connect(lambda checked: self.set_overlay_locked(not checked))
+        self.act_theme = QAction(tr("Dark theme"), self)
+        self.act_theme.setCheckable(True)
+        self.act_theme.setToolTip("Ctrl+Shift+D")
+        self.act_theme.triggered.connect(lambda _checked=False: self.toggle_theme())
         act_quit = QAction(tr("Quit"), self)
         act_quit.triggered.connect(QApplication.quit)
         menu.addAction(act_show)
         menu.addAction(act_overlay)
         menu.addAction(self.act_move)
+        menu.addSeparator()
+        menu.addAction(self.act_theme)
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda r: self.show_window() if r == QSystemTrayIcon.Trigger else None)
         self.tray.show()
+        self._sync_theme_action()
 
     def show_window(self):
         self.showNormal()
