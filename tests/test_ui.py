@@ -24,7 +24,10 @@ def test_gui_imports():
     (for example on a headless CI runner), so skip when Qt itself is not
     importable.  The profiles export test above still runs in that case.
     """
-    pytest.importorskip("PySide6.QtWidgets")
+    try:
+        import PySide6.QtWidgets  # noqa: F401
+    except ImportError:
+        pytest.skip("PySide6 needs desktop libraries that the runner lacks")
     module = importlib.import_module("src.gui")
     assert hasattr(module, "MainWindow")
 
