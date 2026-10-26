@@ -43,7 +43,8 @@ from src.metrics import (
     metric_label,
     metric_unit,
 )
-from src.overlay import OverlayWindow
+from src.overlay import OverlayWindow, overlay_position
+from src.overlay_bridge import GeometryReceiver
 from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
 from src.profiles import (
     POSITIONS,
@@ -1110,6 +1111,12 @@ class MainWindow(QMainWindow):
         self.auto_switch_enabled = True
         self.overlay_locked = self.store.overlay_locked
         self.keep_above = KeepAbove()
+        self._geometry_receiver: GeometryReceiver | None = None
+        self._external_overlay_position = False
+        self._geometry_save_timer = QTimer(self)
+        self._geometry_save_timer.setSingleShot(True)
+        self._geometry_save_timer.setInterval(250)
+        self._geometry_save_timer.timeout.connect(self._save_overlay_geometry)
 
         apply_theme(QApplication.instance(), self.store.theme)
         set_language(self.store.language)
@@ -1194,6 +1201,8 @@ class MainWindow(QMainWindow):
         if self.overlay is None:
             self.overlay = OverlayWindow(profile, self._overlay_data)
             self._wire_overlay(self.overlay)
+        self.keep_above.set_window_title(self.overlay.windowTitle())
+        self.overlay.external_position = self._external_overlay_position
         self.overlay.set_profile(profile)
         self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
@@ -1206,26 +1215,64 @@ class MainWindow(QMainWindow):
     def _enable_keep_above(self):
         if not self.keep_above.available:
             return
+        if self.overlay is not None:
+            self.keep_above.set_window_title(self.overlay.windowTitle())
         self.keep_above.set_position_provider(self._overlay_position)
+
+        service = None
+        if self._geometry_receiver is None:
+            self._geometry_receiver = GeometryReceiver(
+                self._overlay_geometry_received, self
+            )
+        if self._geometry_receiver.available:
+            service = self._geometry_receiver.service
+        self.keep_above.set_geometry_bus(service)
+
         ok, msg = self.keep_above.enable()
+        self._external_overlay_position = bool(ok and service)
+        if self.overlay is not None:
+            self.overlay.external_position = self._external_overlay_position
         if ok:
             self.status.showMessage(tr("Overlay set to stay above other windows (KWin)"), 4000)
         else:
             self.status.showMessage(tr("Keep-above unavailable: {reason}").format(reason=msg), 6000)
 
     def _overlay_position(self):
-        profile = self.store.get_overlay(self._overlay_profile_name) or self.store.active_overlay_profile()
-        if profile is None or profile.position != "custom":
+        overlay = self.overlay
+        if overlay is None:
+            return None
+        profile = getattr(overlay, "profile", None)
+        if profile is None:
             return None
         screen = QApplication.primaryScreen()
         if screen is None:
             return None
         geo = screen.availableGeometry()
-        return (geo.left() + profile.x, geo.top() + profile.y)
+        return overlay_position(profile, overlay.width(), overlay.height(), geo)
+
+    def _overlay_geometry_received(self, token, x, y, width, height):
+        """KWin reported the real overlay geometry (Wayland drag/placement)."""
+        overlay = self.overlay
+        if overlay is None or token != overlay.windowTitle():
+            return
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        geo = screen.availableGeometry()
+        w = width if width > 0 else overlay.width()
+        h = height if height > 0 else overlay.height()
+        profile = overlay.profile
+        profile.position = "custom"
+        profile.x = min(max(int(x) - geo.left(), 0), max(0, geo.width() - w))
+        profile.y = min(max(int(y) - geo.top(), 0), max(0, geo.height() - h))
+        self._geometry_save_timer.start()
+
+    def _save_overlay_geometry(self):
+        if self.overlay is not None:
+            self.store.save()
 
     def _overlay_moved(self):
         self.store.save()
-        self.keep_above.reapply()
         if self.overlay is not None:
             self.status.showMessage(tr("Overlay position saved"), 3000)
 
@@ -1235,7 +1282,6 @@ class MainWindow(QMainWindow):
         self.store.save()
         if self.overlay is not None:
             self.overlay.set_locked(self.overlay_locked)
-        self.keep_above.reapply()
         self.overlay_tab.sync_lock_button()
         if hasattr(self, "act_move"):
             self.act_move.blockSignals(True)
@@ -1258,12 +1304,19 @@ class MainWindow(QMainWindow):
         if self.overlay is None:
             return
         profile = self.store.get_overlay(self._overlay_profile_name) or self.store.active_overlay_profile()
+        before = self.overlay.profile
+        before_geom = (before.position, before.x, before.y, before.margin)
         self.overlay.set_profile(profile)
+        after_geom = (profile.position, profile.x, profile.y, profile.margin)
+        if after_geom != before_geom:
+            self.keep_above.reapply()
 
     def preview_overlay(self, profile):
         if self.overlay is None:
             self.overlay = OverlayWindow(profile, self._overlay_data)
             self._wire_overlay(self.overlay)
+        self.keep_above.set_window_title(self.overlay.windowTitle())
+        self.overlay.external_position = self._external_overlay_position
         self.overlay.set_profile(profile)
         self.overlay.set_locked(self.overlay_locked)
         self._overlay_profile_name = profile.name
@@ -1285,8 +1338,13 @@ class MainWindow(QMainWindow):
         if target_name != self._overlay_profile_name:
             profile = self.store.get_overlay(target_name)
             if profile is not None:
+                before = self.overlay.profile
+                before_geom = (before.position, before.x, before.y, before.margin)
                 self.overlay.set_profile(profile)
+                after_geom = (profile.position, profile.x, profile.y, profile.margin)
                 self._overlay_profile_name = profile.name
+                if after_geom != before_geom:
+                    self.keep_above.reapply()
 
     def _app_icon(self):
         icon = QIcon.fromTheme("utilities-system-monitor")

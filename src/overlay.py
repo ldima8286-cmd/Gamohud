@@ -1,6 +1,7 @@
 """Standalone, profile-driven always-on-top overlay window (no MangoHud)."""
 from __future__ import annotations
 
+import uuid
 from collections import deque
 
 from PySide6.QtCore import QPointF, Qt, QTimer
@@ -32,6 +33,63 @@ def _rgba(value, alpha, default=(16, 16, 20)) -> str:
     r, g, b = _hex_to_rgb(value, default)
     a = int(max(0.0, min(1.0, alpha)) * 255)
     return f"rgba({r},{g},{b},{a})"
+
+
+def overlay_position(profile: OverlayProfile, width: int, height: int, geo) -> tuple[int, int]:
+    """Return a safe global top-left for the overlay inside *geo*.
+
+    The profile can contain stale/garbage custom coordinates (for example
+    ``10000, 10000``), so custom positions are validated here.  A position that
+    is nowhere near the screen falls back to the top-left margin; a partially
+    off-screen one is clamped so at least the whole overlay stays reachable.
+    """
+    w = max(1, int(width))
+    h = max(1, int(height))
+    margin = max(0, int(getattr(profile, "margin", 0) or 0))
+    pos = getattr(profile, "position", "top-left") or "top-left"
+
+    if pos == "custom":
+        raw_x = int(getattr(profile, "x", 0) or 0)
+        raw_y = int(getattr(profile, "y", 0) or 0)
+        # Saved coordinates are relative to the primary screen.  Reject values
+        # that cannot possibly be on it instead of clamping to a far corner.
+        if (
+            raw_x < -w
+            or raw_y < -h
+            or raw_x > geo.width() + w
+            or raw_y > geo.height() + h
+        ):
+            x, y = geo.left() + margin, geo.top() + margin
+        else:
+            x, y = geo.left() + raw_x, geo.top() + raw_y
+    else:
+        if pos == "center":
+            vert, horiz = "middle", "center"
+        else:
+            vert, _, horiz = pos.partition("-")
+            if not horiz:
+                vert, horiz = "top", "left"
+            if vert not in ("top", "middle", "bottom"):
+                vert = "top"
+            if horiz not in ("left", "center", "right"):
+                horiz = "left"
+
+        cols = {
+            "left": geo.left() + margin,
+            "center": geo.center().x() - w // 2,
+            "right": geo.right() - w + 1 - margin,
+        }
+        rows = {
+            "top": geo.top() + margin,
+            "middle": geo.center().y() - h // 2,
+            "bottom": geo.bottom() - h + 1 - margin,
+        }
+        x = cols[horiz]
+        y = rows[vert]
+
+    max_x = max(geo.left(), geo.right() - w + 1)
+    max_y = max(geo.top(), geo.bottom() - h + 1)
+    return min(max(x, geo.left()), max_x), min(max(y, geo.top()), max_y)
 
 
 class Sparkline(QWidget):
@@ -69,18 +127,22 @@ class Sparkline(QWidget):
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, profile: OverlayProfile, data_provider):
+    def __init__(self, profile: OverlayProfile, data_provider, window_title: str | None = None):
         super().__init__(None)
         self._data_provider = data_provider
         self.profile = profile
         self._rows: dict[str, tuple[QLabel, QLabel]] = {}
 
-        self.setWindowTitle("gamohud-overlay")
+        # A unique title prevents a KWin script left over from an earlier run
+        # (or another instance) from matching and moving this window.
+        self._overlay_title = window_title or f"gamohud-hud-{uuid.uuid4().hex[:12]}"
+        self.setWindowTitle(self._overlay_title)
 
         # Locked == click-through (mouse passes to the game). Unlocked makes the
         # window interactive so it can be dragged with the mouse.
         self.locked = bool(getattr(profile, "click_through", True))
         self.on_position_changed = None
+        self.external_position = False
         self._drag_offset = None
         self._system_moving = False
         self._programmatic_move = False
@@ -124,44 +186,52 @@ class OverlayWindow(QWidget):
 
     # -- window / wayland -------------------------------------------------
     def _desired_flags(self):
-        flags = (
+        """Window flags that must never change while the overlay is visible.
+
+        Changing the window type or toggling ``Qt.Tool``/``Qt.Window`` via
+        ``QWidget.setWindowFlags()`` re-maps the Wayland surface, and KWin then
+        places it at its default position.  Locking/unlocking therefore used to
+        reset a custom drag position.  Click-through is toggled separately on
+        the existing QWindow, which only changes ``wl_surface.set_input_region``
+        and keeps the surface (and its compositor-owned position) alive.
+        """
+        return (
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
             | Qt.WindowDoesNotAcceptFocus
+            | Qt.Window
         )
-        if self.locked:
-            flags |= Qt.Tool
-        else:
-            flags |= Qt.Window
-        if self.locked:
-            flags |= Qt.WindowTransparentForInput
-        return flags
+
+    def _apply_input_transparency(self):
+        """Toggle click-through on the live window without re-mapping it."""
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, self.locked)
+        handle = self.windowHandle()
+        if handle is None:
+            return
+        currently_transparent = bool(handle.flags() & Qt.WindowTransparentForInput)
+        if currently_transparent != self.locked:
+            handle.setFlag(Qt.WindowTransparentForInput, self.locked)
 
     def _apply_window_flags(self):
-        """Only touch window flags when they actually change.
-
-        Calling setWindowFlags() on a visible window hides and re-maps it; on
-        Wayland the re-mapped surface can end up behind other windows, which is
-        what made the overlay "disappear" after saving/switching a profile.
-        """
+        """Apply base flags once, then keep the native surface stable."""
         flags = self._desired_flags()
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, self.locked)
-        if self.windowFlags() == flags:
-            return
-        was_visible = self.isVisible()
-        self.setWindowFlags(flags)
-        if was_visible:
-            self.show()
-            self.raise_()
-            self._restore_position()
+        if self.windowFlags() != flags:
+            was_visible = self.isVisible()
+            self.setWindowFlags(flags)
+            if was_visible:
+                self.show()
+                self.raise_()
+                self._restore_position()
+        self._apply_input_transparency()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # The native QWindow exists only after the first show; apply the
+        # click-through state now without re-creating the surface.
+        self._apply_input_transparency()
 
     def _restore_position(self):
-        """Re-apply the saved position after setWindowFlags()+show() re-mapped.
-
-        On Wayland the re-created surface lands at the compositor's default
-        spot (screen centre), so locking/unlocking would otherwise reset a
-        custom drag position.
-        """
+        """Re-apply the saved position after a rare window re-map."""
         if self._drag_offset is not None or self._system_moving:
             return
         self._reposition(force=True)
@@ -169,16 +239,12 @@ class OverlayWindow(QWidget):
     def set_locked(self, locked: bool):
         """Lock (click-through, cannot be dragged) or unlock the overlay."""
         locked = bool(locked)
-        if locked == self.locked:
-            return
+        changed = locked != self.locked
         self.locked = locked
         self._apply_window_flags()
-        self._apply_style()
-        self.setCursor(Qt.ArrowCursor if locked else Qt.SizeAllCursor)
-        if not locked:
-            self.show()
-            self.raise_()
-            self._restore_position()
+        if changed:
+            self._apply_style()
+            self.setCursor(Qt.ArrowCursor if locked else Qt.SizeAllCursor)
 
     # -- mouse dragging ---------------------------------------------------
     def mousePressEvent(self, event):
@@ -224,13 +290,20 @@ class OverlayWindow(QWidget):
         self._save_timer.start()
 
     def _update_profile_position(self):
+        if self.external_position:
+            # Wayland does not expose the real window position to the client.
+            # KWin reports the geometry over D-Bus instead; don't overwrite it
+            # with Qt's 0/0 fallback on release.
+            return
         screen = QApplication.primaryScreen()
         if screen is None:
             return
         geo = screen.availableGeometry()
         self.profile.position = "custom"
-        self.profile.x = self.x() - geo.left()
-        self.profile.y = self.y() - geo.top()
+        max_x = max(0, geo.width() - self.width())
+        max_y = max(0, geo.height() - self.height())
+        self.profile.x = min(max(self.x() - geo.left(), 0), max_x)
+        self.profile.y = min(max(self.y() - geo.top(), 0), max_y)
 
     def _commit_position(self):
         self._update_profile_position()
@@ -327,29 +400,11 @@ class OverlayWindow(QWidget):
             return
         geo = screen.availableGeometry()
         self.adjustSize()
-        w, h = self.width(), self.height()
-        m = self.profile.margin
-        pos = self.profile.position
-        if pos == "custom":
+        if self.profile.position == "custom" and not force:
             # Wayland ignores move(): the compositor owns the position, so once
             # the user has dragged the overlay we must not fight it.
-            if not force:
-                return
-            x, y = geo.left() + self.profile.x, geo.top() + self.profile.y
-        else:
-            cols = {
-                "left": geo.left() + m,
-                "center": geo.center().x() - w // 2,
-                "right": geo.right() - w - m,
-            }
-            rows = {
-                "top": geo.top() + m,
-                "middle": geo.center().y() - h // 2,
-                "bottom": geo.bottom() - h - m,
-            }
-            vert, _, horiz = pos.partition("-")
-            x = cols.get(horiz or "left", cols["left"])
-            y = rows.get(vert, rows["top"])
+            return
+        x, y = overlay_position(self.profile, self.width(), self.height(), geo)
         self._programmatic_move = True
         self.move(x, y)
         self._programmatic_move = False

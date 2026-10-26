@@ -35,6 +35,22 @@ def runtime_dir() -> Path:
     return Path(tempfile.gettempdir())
 
 
+def app_dbus_name(suffix: str = "Gamohud") -> str:
+    """A session-bus name the app is allowed to own.
+
+    Flatpak only permits names below the app ID; outside a sandbox a name
+    below org.gamohud is used instead.
+    """
+    app_id = os.environ.get("FLATPAK_ID")
+    if app_id:
+        return f"{app_id}.{suffix}"
+    return f"org.gamohud.{suffix}"
+
+
+OVERLAY_DBUS_PATH = "/Overlay"
+OVERLAY_DBUS_INTERFACE = "org.gamohud.Overlay"
+
+
 def split_args(text: str) -> list[str]:
     """Split a command/argument string respecting the host shell quoting rules."""
     if not text:
