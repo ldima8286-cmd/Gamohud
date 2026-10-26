@@ -52,15 +52,28 @@ function apply(w) {
 %REPORT_CALL%
     } catch (e) {}
 }
+function watch(w) {
+    try {
+        if (!w || w._gamohudWatched) return;
+        w._gamohudWatched = true;
+        if (w.captionChanged) {
+            w.captionChanged.connect(function () { apply(w); });
+        }
+    } catch (e) {}
+}
 function applyAll() {
     try {
         if (typeof workspace === "undefined") return;
         if (workspace.windowList) {            // KWin 5.21+ / KWin 6
-            workspace.windowList().forEach(apply);
-            workspace.windowAdded.connect(apply);
+            var list = workspace.windowList();
+            list.forEach(watch);
+            list.forEach(apply);
+            workspace.windowAdded.connect(function (w) { watch(w); apply(w); });
         } else if (workspace.clientList) {     // older KWin 5
-            workspace.clientList().forEach(apply);
-            workspace.clientAdded.connect(apply);
+            var clients = workspace.clientList();
+            clients.forEach(watch);
+            clients.forEach(apply);
+            workspace.clientAdded.connect(function (w) { watch(w); apply(w); });
         }
     } catch (e) {}
 }
@@ -68,12 +81,16 @@ applyAll();
 '''
 
 _RESTORE_BLOCK = """        try {
-            if (w.moveable) {
-                if (w.x !== %X% || w.y !== %Y%) {
-                    var geo = { x: %X%, y: %Y%, width: w.width, height: w.height };
-                    try { w.frameGeometry = geo; } catch (e1) {
-                        try { w.geometry = geo; } catch (e2) {}
+            if (w.x !== %X% || w.y !== %Y%) {
+                var geo = { x: %X%, y: %Y%, width: w.width, height: w.height };
+                try {
+                    if (w.frameGeometry !== undefined) {
+                        w.frameGeometry = geo;
+                    } else if (w.geometry !== undefined) {
+                        w.geometry = geo;
                     }
+                } catch (e1) {
+                    try { w.geometry = geo; } catch (e2) {}
                 }
             }
         } catch (e) {}"""

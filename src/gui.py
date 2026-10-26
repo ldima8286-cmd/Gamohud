@@ -1117,6 +1117,10 @@ class MainWindow(QMainWindow):
         self._geometry_save_timer.setSingleShot(True)
         self._geometry_save_timer.setInterval(250)
         self._geometry_save_timer.timeout.connect(self._save_overlay_geometry)
+        self._overlay_restore_timer = QTimer(self)
+        self._overlay_restore_timer.setSingleShot(True)
+        self._overlay_restore_timer.setInterval(700)
+        self._overlay_restore_timer.timeout.connect(self._restore_overlay_position)
 
         apply_theme(QApplication.instance(), self.store.theme)
         set_language(self.store.language)
@@ -1208,6 +1212,13 @@ class MainWindow(QMainWindow):
         self._overlay_profile_name = profile.name
         self.overlay.show()
         self.keep_above.reapply()
+        # Wayland maps the surface asynchronously and KWin may place it after
+        # the first script run.  Re-apply once the window is really on screen.
+        self._overlay_restore_timer.start()
+
+    def _restore_overlay_position(self):
+        if self.overlay is not None and self.overlay.isVisible():
+            self.keep_above.reapply()
 
     def _wire_overlay(self, overlay):
         overlay.on_position_changed = self._overlay_moved
@@ -1234,6 +1245,7 @@ class MainWindow(QMainWindow):
             self.overlay.external_position = self._external_overlay_position
         if ok:
             self.status.showMessage(tr("Overlay set to stay above other windows (KWin)"), 4000)
+            self._overlay_restore_timer.start()
         else:
             self.status.showMessage(tr("Keep-above unavailable: {reason}").format(reason=msg), 6000)
 
@@ -1322,6 +1334,7 @@ class MainWindow(QMainWindow):
         self._overlay_profile_name = profile.name
         self.overlay.show()
         self.keep_above.reapply()
+        self._overlay_restore_timer.start()
 
     def _auto_switch(self):
         if self.overlay is None or not self.auto_switch_enabled:

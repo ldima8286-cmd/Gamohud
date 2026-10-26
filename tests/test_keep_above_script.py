@@ -11,6 +11,9 @@ def test_script_is_bound_to_unique_title_and_restores_position():
     assert 'indexOf("gamohud-hud-unique-123") === 0' in script
     assert "gamohud-overlay" not in script
     assert "frameGeometry" in script
+    assert "captionChanged" in script
+    assert "windowAdded" in script
+    assert "w.moveable" not in script
     assert "640" in script and "360" in script
     assert "callDBus" in script
     assert "org.example.Gamohud" in script
