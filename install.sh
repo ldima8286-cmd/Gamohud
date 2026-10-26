@@ -3,12 +3,12 @@
 #
 # Linux/macOS (portable): runs from the repo, or clones from GitHub if piped/remote.
 # For a one-liner install:
-#   curl -fsSL https://raw.githubusercontent.com/ldima8286-cmd/mangohud-preset-manager-tui/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ldima8286-cmd/Gamohud/main/install.sh | sh
 #
 # Or locally (from a cloned repo): ./install.sh
 set -e
 
-REPO_URL="https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git"
+REPO_URL="https://github.com/ldima8286-cmd/Gamohud.git"
 REPO_BRANCH="main"
 INSTALL_DIR="${GAMOHUD_HOME:-$HOME/.local/share/gamohud}"
 PREFIX="${PREFIX:-$HOME/.local}"

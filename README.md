@@ -6,21 +6,21 @@
 
 **Самый простой путь (готовые бинарники)**
 
-1. Зайди в [Releases](https://github.com/ldima8286-cmd/mangohud-preset-manager-tui/releases).
+1. Зайди в [Releases](https://github.com/ldima8286-cmd/Gamohud/releases).
 2. Скачай архив под свою ОС: `gamohud-windows-x64.zip` (Windows) или `gamohud-linux-x64.tar.gz` (Linux).
 3. Распакуй и запусти `gamohud-gui.exe` (Windows) или `gamohud-gui` (Linux).
 
 **Linux/macOS (одна команда из терминала)**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ldima8286-cmd/mangohud-preset-manager-tui/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ldima8286-cmd/Gamohud/main/install.sh | sh
 ```
 
 **Из исходников (скачал репозиторий)**
 
 ```bash
-git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
-cd mangohud-preset-manager-tui
+git clone https://github.com/ldima8286-cmd/Gamohud.git
+cd Gamohud
 
 # Linux/macOS
 ./run-gui.sh
@@ -153,15 +153,15 @@ command-prefix, после чего `exec`-запускает приложени
 
 Linux/macOS:
 ```bash
-git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
-cd mangohud-preset-manager-tui
+git clone https://github.com/ldima8286-cmd/Gamohud.git
+cd Gamohud
 ./run-gui.sh
 ```
 
 Windows:
 ```cmd
-git clone https://github.com/ldima8286-cmd/mangohud-preset-manager-tui.git
-cd mangohud-preset-manager-tui
+git clone https://github.com/ldima8286-cmd/Gamohud.git
+cd Gamohud
 run-gui.bat
 ```
 

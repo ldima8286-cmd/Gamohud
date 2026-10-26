@@ -6,11 +6,11 @@ from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap, QShortc
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -36,6 +36,7 @@ from src.i18n import LANGUAGES, get_language, set_language, tr
 from src.keep_above import KeepAbove
 from src.launcher import launch as launch_profile
 from src.metrics import (
+    LAYOUT_PRESETS,
     METRICS,
     collect_all,
     format_metric,
@@ -54,51 +55,88 @@ from src.profiles import (
     find_profile_by_window,
     running_process_names,
 )
+from src.ui_utils import (
+    MetricTile,
+    StatusBanner,
+    apply_app_style,
+    color_button,
+    form_label,
+    group_box,
+    hint_label,
+    muted_color,
+    page_header,
+    section_label,
+)
 
 
 class DashboardTab(QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.labels = {}
+        self.tiles = {}
         root = QVBoxLayout(self)
-        box = QGroupBox(tr("Live metrics"))
-        form = QFormLayout(box)
-        for key in METRICS:
-            lb = QLabel("--")
-            form.addRow(metric_label(key), lb)
-            self.labels[key] = lb
-        root.addWidget(box)
+        root.setContentsMargins(18, 16, 18, 14)
+        root.setSpacing(12)
+
+        root.addWidget(
+            page_header(
+                tr("Dashboard"),
+                tr("Live system metrics from /proc, /sys and your GPU driver."),
+            )
+        )
+
+        self.warning = StatusBanner()
+        self.warning.button.clicked.connect(self._open_settings)
+        root.addWidget(self.warning)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        columns = 4
+        for index, key in enumerate(METRICS):
+            tile = MetricTile(metric_label(key))
+            self.tiles[key] = tile
+            grid.addWidget(tile, index // columns, index % columns)
+        root.addLayout(grid, 1)
+
         self.info = QLabel("")
+        self.info.setStyleSheet(f"color: {muted_color()};")
         root.addWidget(self.info)
-        root.addStretch(1)
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(700)
+        self.refresh()
+
+    def _open_settings(self):
+        settings = getattr(self.app, "settings_tab", None)
+        tabs = getattr(self.app, "tabs", None)
+        if settings is not None and tabs is not None:
+            tabs.setCurrentWidget(settings)
 
     def refresh(self):
         data = collect_all(self.app.fps_manager.read())
-        for key, lb in self.labels.items():
+        for key, tile in self.tiles.items():
             text = format_metric(key, data.get(key))
-            lb.setText(f"{text} {metric_unit(key)}".strip() if text is not None else tr("N/A"))
+            if text is None:
+                tile.set_value(tr("N/A"))
+            else:
+                unit = metric_unit(key)
+                tile.set_value(f"{text} {unit}".strip())
+        backend = self.app.fps_manager.backend
+        status = backend.available()
+        if status.available:
+            self.warning.hide()
+        else:
+            self.warning.set_message(
+                tr("FPS is unavailable: {reason}. Pick another backend in Settings.").format(
+                    reason=tr(status.reason)
+                )
+            )
         self.info.setText(
-            f"{tr('FPS backend')}: {self.app.fps_manager.backend.label}  |  "
+            f"{tr('FPS backend')}: {backend.label}  \u00b7  "
             f"{tr('Overlay profile')}: {self.app.current_overlay_name()}"
         )
-
-
-def _color_button(initial, parent=None):
-    btn = QPushButton(initial or "#000000")
-    btn._value = initial or "#000000"
-
-    def pick():
-        c = QColorDialog.getColor(QColor(btn._value), parent or btn)
-        if c.isValid():
-            btn._value = c.name()
-            btn.setText(c.name())
-
-    btn.clicked.connect(pick)
-    return btn
 
 
 class OverlayTab(QWidget):
@@ -106,116 +144,218 @@ class OverlayTab(QWidget):
         super().__init__()
         self.app = app
         self.current = None
-        root = QHBoxLayout(self)
 
-        left = QVBoxLayout()
+        page = QVBoxLayout(self)
+        page.setContentsMargins(18, 16, 18, 12)
+        page.setSpacing(12)
+        page.addWidget(
+            page_header(
+                tr("Overlay Profiles"),
+                tr("Profiles and appearance of the on-screen overlay."),
+            )
+        )
+
+        body = QHBoxLayout()
+        body.setSpacing(14)
+
+        left_panel = QWidget()
+        left_panel.setFixedWidth(210)
+        left = QVBoxLayout(left_panel)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(8)
+        left.addWidget(section_label(tr("Profiles")))
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self.on_select)
         left.addWidget(self.list, 1)
-        row = QHBoxLayout()
         for text, slot in (
             (tr("New"), self.new),
             (tr("Duplicate"), self.duplicate),
             (tr("Delete"), self.delete),
             (tr("Set active"), self.set_active),
         ):
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            row.addWidget(b)
-        left.addLayout(row)
-        root.addLayout(left, 1)
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            left.addWidget(button)
+        left.addWidget(hint_label(tr("Auto-switch follows the matched running game.")))
+        body.addWidget(left_panel, 0)
 
-        right = QScrollArea()
-        right.setWidgetResizable(True)
+        right = QVBoxLayout()
+        right.setSpacing(10)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         holder = QWidget()
         rl = QVBoxLayout(holder)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(10)
+        columns = QHBoxLayout()
+        columns.setSpacing(10)
+        left_col = QVBoxLayout()
+        left_col.setSpacing(10)
+        right_col = QVBoxLayout()
+        right_col.setSpacing(10)
+        columns.addLayout(left_col, 5)
+        columns.addLayout(right_col, 4)
+        rl.addLayout(columns)
 
-        appearance = QGroupBox(tr("Appearance"))
-        af = QFormLayout(appearance)
+        appearance = group_box(tr("Appearance"))
+        af = QGridLayout(appearance)
+        af.setContentsMargins(12, 14, 12, 10)
+        af.setHorizontalSpacing(10)
+        af.setVerticalSpacing(7)
+        af.setColumnStretch(1, 3)
+        af.setColumnStretch(3, 2)
+
         self.name = QLineEdit()
-        af.addRow(tr("Name"), self.name)
+        af.addWidget(form_label(tr("Name")), 0, 0)
+        af.addWidget(self.name, 0, 1, 1, 3)
+
         self.position = QComboBox()
         self.position.addItems(POSITIONS)
-        af.addRow(tr("Position"), self.position)
-        self.x = QSpinBox(); self.x.setRange(0, 10000)
-        self.y = QSpinBox(); self.y.setRange(0, 10000)
-        xy = QHBoxLayout(); xy.addWidget(self.x); xy.addWidget(self.y)
-        xw = QWidget(); xw.setLayout(xy)
-        af.addRow(tr("Custom x / y"), xw)
+        af.addWidget(form_label(tr("Position")), 1, 0)
+        af.addWidget(self.position, 1, 1)
         self.margin = QSpinBox(); self.margin.setRange(0, 500)
-        af.addRow(tr("Margin"), self.margin)
+        af.addWidget(form_label(tr("Margin")), 1, 2)
+        af.addWidget(self.margin, 1, 3)
+
+        self.x = QSpinBox(); self.x.setRange(0, 10000); self.x.setPrefix("X  ")
+        self.y = QSpinBox(); self.y.setRange(0, 10000); self.y.setPrefix("Y  ")
+        xy = QHBoxLayout(); xy.setSpacing(6); xy.addWidget(self.x, 1); xy.addWidget(self.y, 1)
+        af.addWidget(form_label(tr("Custom x / y")), 2, 0)
+        af.addLayout(xy, 2, 1, 1, 3)
+
         self.font_family = QLineEdit()
-        af.addRow(tr("Font"), self.font_family)
+        af.addWidget(form_label(tr("Font")), 3, 0)
+        af.addWidget(self.font_family, 3, 1)
         self.font_size = QSpinBox(); self.font_size.setRange(7, 48)
-        af.addRow(tr("Font size"), self.font_size)
-        self.font_bold = QCheckBox(tr("Bold"))
-        af.addRow(self.font_bold)
+        af.addWidget(form_label(tr("Font size")), 3, 2)
+        af.addWidget(self.font_size, 3, 3)
+
         self.opacity = QDoubleSpinBox(); self.opacity.setRange(0.05, 1.0); self.opacity.setSingleStep(0.05)
-        af.addRow(tr("Opacity"), self.opacity)
+        af.addWidget(form_label(tr("Opacity")), 4, 0)
+        af.addWidget(self.opacity, 4, 1)
         self.bg_opacity = QDoubleSpinBox(); self.bg_opacity.setRange(0.0, 1.0); self.bg_opacity.setSingleStep(0.05)
-        af.addRow(tr("Background opacity"), self.bg_opacity)
+        af.addWidget(form_label(tr("Background opacity")), 4, 2)
+        af.addWidget(self.bg_opacity, 4, 3)
+
         self.border_radius = QSpinBox(); self.border_radius.setRange(0, 40)
-        af.addRow(tr("Corner radius"), self.border_radius)
+        af.addWidget(form_label(tr("Corner radius")), 5, 0)
+        af.addWidget(self.border_radius, 5, 1)
         self.refresh_ms = QSpinBox(); self.refresh_ms.setRange(100, 5000); self.refresh_ms.setSingleStep(100)
-        af.addRow(tr("Refresh (ms)"), self.refresh_ms)
+        af.addWidget(form_label(tr("Refresh (ms)")), 5, 2)
+        af.addWidget(self.refresh_ms, 5, 3)
+
+        self.font_bold = QCheckBox(tr("Bold"))
         self.click_through = QCheckBox(tr("Click-through (ignore mouse)"))
-        af.addRow(self.click_through)
         self.graph = QCheckBox(tr("Show FPS graph"))
-        af.addRow(self.graph)
-        self.fg_btn = _color_button("#ffffff", self)
-        self.label_btn = _color_button("#9ad1ff", self)
-        self.accent_btn = _color_button("#7CFC00", self)
-        self.bg_btn = _color_button("#000000", self)
-        af.addRow(tr("Value color"), self.fg_btn)
-        af.addRow(tr("Label color"), self.label_btn)
-        af.addRow(tr("Accent color"), self.accent_btn)
-        af.addRow(tr("Background color"), self.bg_btn)
-        rl.addWidget(appearance)
+        flags = QHBoxLayout()
+        flags.setSpacing(16)
+        flags.addWidget(self.font_bold)
+        flags.addWidget(self.click_through)
+        flags.addWidget(self.graph)
+        flags.addStretch(1)
+        af.addLayout(flags, 6, 0, 1, 4)
+        left_col.addWidget(appearance)
 
-        metrics = QGroupBox(tr("Metrics"))
-        mf = QFormLayout(metrics)
+        colors = group_box(tr("Colors"))
+        cf = QGridLayout(colors)
+        cf.setContentsMargins(12, 14, 12, 10)
+        cf.setHorizontalSpacing(10)
+        cf.setVerticalSpacing(7)
+        self.fg_btn = color_button("#ffffff", self)
+        self.label_btn = color_button("#9ad1ff", self)
+        self.accent_btn = color_button("#7CFC00", self)
+        self.bg_btn = color_button("#000000", self)
+        cf.addWidget(form_label(tr("Value color")), 0, 0)
+        cf.addWidget(self.fg_btn, 0, 1)
+        cf.addWidget(form_label(tr("Background color")), 0, 2)
+        cf.addWidget(self.bg_btn, 0, 3)
+        cf.addWidget(form_label(tr("Label color")), 1, 0)
+        cf.addWidget(self.label_btn, 1, 1)
+        cf.addWidget(form_label(tr("Accent color")), 1, 2)
+        cf.addWidget(self.accent_btn, 1, 3)
+        cf.setColumnStretch(1, 1)
+        cf.setColumnStretch(3, 1)
+        left_col.addWidget(colors)
+
+        metrics = group_box(tr("Metrics"))
+        ml = QVBoxLayout(metrics)
+        ml.setContentsMargins(12, 14, 12, 10)
+        ml.setSpacing(6)
+        metric_top = QHBoxLayout()
+        metric_top.addWidget(hint_label(tr("Choose what the overlay shows.")), 1)
+        all_button = QPushButton(tr("All"))
+        all_button.setFlat(True)
+        all_button.clicked.connect(lambda: self._set_all_metrics(True))
+        none_button = QPushButton(tr("None"))
+        none_button.setFlat(True)
+        none_button.clicked.connect(lambda: self._set_all_metrics(False))
+        metric_top.addWidget(all_button)
+        metric_top.addWidget(none_button)
+        ml.addLayout(metric_top)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(4)
         self.checks = {}
-        for key in METRICS:
+        columns = 2
+        for index, key in enumerate(METRICS):
             cb = QCheckBox(metric_label(key))
+            cb.setToolTip(f"{metric_label(key)} ({metric_unit(key)})".strip())
             self.checks[key] = cb
-            mf.addRow(cb)
-        rl.addWidget(metrics)
+            grid.addWidget(cb, index // columns, index % columns)
+        ml.addLayout(grid)
+        right_col.addWidget(metrics)
 
-        presets = QGroupBox(tr("Presets"))
-        pf = QVBoxLayout(presets)
-        preset_hint = QLabel(tr("Apply a ready-made metric set to this profile."))
-        preset_hint.setWordWrap(True)
-        pf.addWidget(preset_hint)
+        presets = group_box(tr("Presets"))
+        pl = QVBoxLayout(presets)
+        pl.setContentsMargins(12, 14, 12, 10)
+        pl.setSpacing(6)
+        pl.addWidget(hint_label(tr("Apply a ready-made metric set to this profile.")))
         preset_row = QHBoxLayout()
-        from src.metrics import LAYOUT_PRESETS
+        self.preset_combo = QComboBox()
+        self.preset_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.preset_combo.setMinimumContentsLength(12)
         for key, (label, desc, _keys) in LAYOUT_PRESETS.items():
-            b = QPushButton(tr(label))
-            b.setToolTip(tr(desc))
-            b.clicked.connect(lambda _=False, k=key: self.apply_preset(k))
-            preset_row.addWidget(b)
-        pf.addLayout(preset_row)
-        rl.addWidget(presets)
+            self.preset_combo.addItem(tr(label), key)
+            self.preset_combo.setItemData(
+                self.preset_combo.count() - 1, tr(desc), Qt.ItemDataRole.ToolTipRole
+            )
+        apply_preset = QPushButton(tr("Apply"))
+        apply_preset.clicked.connect(lambda: self.apply_preset(self.preset_combo.currentData()))
+        preset_row.addWidget(self.preset_combo, 1)
+        preset_row.addWidget(apply_preset)
+        pl.addLayout(preset_row)
+        right_col.addWidget(presets)
+        left_col.addStretch(1)
+        right_col.addStretch(1)
+
+        self.scroll.setWidget(holder)
+        right.addWidget(self.scroll, 1)
 
         btn_row = QHBoxLayout()
         save = QPushButton(tr("Save"))
+        save.setDefault(True)
         save.clicked.connect(self.save)
         preview = QPushButton(tr("Apply / Preview"))
         preview.clicked.connect(self.preview)
         self.lock_btn = QPushButton(tr("Unlock to move"))
         self.lock_btn.setCheckable(True)
         self.lock_btn.toggled.connect(self._on_lock_toggled)
+        self.lock_btn.setToolTip(
+            tr("Unlock, then drag the overlay with the mouse to place it. "
+               "Ctrl+Shift+L toggles the lock.")
+        )
         btn_row.addWidget(save)
         btn_row.addWidget(preview)
         btn_row.addWidget(self.lock_btn)
-        rl.addLayout(btn_row)
-        hint = QLabel(tr("Unlock, then drag the overlay with the mouse to place it. "
-                         "Ctrl+Shift+L toggles the lock."))
-        hint.setWordWrap(True)
-        rl.addWidget(hint)
-        rl.addStretch(1)
-        right.setWidget(holder)
-        root.addWidget(right, 3)
+        btn_row.addStretch(1)
+        btn_row.addWidget(hint_label(tr("Ctrl+Shift+L toggles the lock.")))
+        right.addLayout(btn_row)
 
+        body.addLayout(right, 3)
+        page.addLayout(body, 1)
         self.reload()
 
     def reload(self):
@@ -226,6 +366,9 @@ class OverlayTab(QWidget):
             tag = " (active)" if p.name == self.app.store.active_overlay else ""
             it = QListWidgetItem(f"{p.name}{tr(tag)}")
             it.setData(Qt.UserRole, p.name)
+            font = it.font()
+            font.setBold(p.name == self.app.store.active_overlay)
+            it.setFont(font)
             self.list.addItem(it)
         self.list.blockSignals(False)
         if self.list.count():
@@ -259,12 +402,16 @@ class OverlayTab(QWidget):
         self.refresh_ms.setValue(profile.refresh_ms)
         self.click_through.setChecked(profile.click_through)
         self.graph.setChecked(profile.graph)
-        self.fg_btn._value = profile.fg_color; self.fg_btn.setText(profile.fg_color)
-        self.label_btn._value = profile.label_color; self.label_btn.setText(profile.label_color)
-        self.accent_btn._value = profile.accent_color; self.accent_btn.setText(profile.accent_color)
-        self.bg_btn._value = profile.bg_color; self.bg_btn.setText(profile.bg_color)
+        self.fg_btn._set_value(profile.fg_color)
+        self.label_btn._set_value(profile.label_color)
+        self.accent_btn._set_value(profile.accent_color)
+        self.bg_btn._set_value(profile.bg_color)
         for key, cb in self.checks.items():
             cb.setChecked(key in profile.metrics)
+
+    def _set_all_metrics(self, checked: bool):
+        for cb in self.checks.values():
+            cb.setChecked(checked)
 
     def _collect(self) -> OverlayProfile:
         metrics = [k for k in METRICS if self.checks[k].isChecked()]
@@ -305,7 +452,6 @@ class OverlayTab(QWidget):
         self.app.preview_overlay(self._collect())
 
     def apply_preset(self, key):
-        from src.metrics import LAYOUT_PRESETS
         preset = LAYOUT_PRESETS.get(key)
         if preset is None:
             return
@@ -313,7 +459,6 @@ class OverlayTab(QWidget):
         wanted = set(keys)
         for k, cb in self.checks.items():
             cb.setChecked(k in wanted)
-        self.graph.setChecked("fps" in wanted)
         self.app.status.showMessage(
             tr("Applied preset '{name}'").format(name=tr(preset[0])), 4000
         )
@@ -369,31 +514,59 @@ class AppsTab(QWidget):
         super().__init__()
         self.app = app
         self.current = None
-        root = QHBoxLayout(self)
 
-        left = QVBoxLayout()
+        page = QVBoxLayout(self)
+        page.setContentsMargins(18, 14, 18, 10)
+        page.setSpacing(10)
+        page.addWidget(
+            page_header(
+                tr("Applications"),
+                tr("Game profiles, launch options and automatic overlay switching."),
+            )
+        )
+
+        body = QHBoxLayout()
+        body.setSpacing(14)
+
+        left_panel = QWidget()
+        left_panel.setFixedWidth(210)
+        left = QVBoxLayout(left_panel)
+        left.setContentsMargins(0, 0, 0, 0)
+        left.setSpacing(8)
+        left.addWidget(section_label(tr("Profiles")))
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self.on_select)
         left.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        for text, slot in (
-            ("New", self.new),
-            ("Delete", self.delete),
-            ("From running process", self.from_running),
+        buttons = QGridLayout()
+        buttons.setHorizontalSpacing(6)
+        buttons.setVerticalSpacing(6)
+        for index, (text, slot) in enumerate(
+            ((tr("New"), self.new), (tr("Delete"), self.delete))
         ):
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            row.addWidget(b)
-        left.addLayout(row)
-        root.addLayout(left, 1)
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            buttons.addWidget(button, 0, index)
+        from_running = QPushButton(tr("From running process"))
+        from_running.clicked.connect(self.from_running)
+        buttons.addWidget(from_running, 1, 0, 1, 2)
+        left.addLayout(buttons)
+        left.addWidget(hint_label(tr("Auto-switch follows the matched running game.")))
+        body.addWidget(left_panel, 0)
 
-        right = QScrollArea()
-        right.setWidgetResizable(True)
+        right = QVBoxLayout()
+        right.setSpacing(10)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         holder = QWidget()
         rl = QVBoxLayout(holder)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(10)
 
-        basic = QGroupBox(tr("Application profile"))
+        basic = group_box(tr("Application profile"))
         bf = QFormLayout(basic)
+        bf.setContentsMargins(12, 10, 12, 8)
+        bf.setSpacing(5)
         self.name = QLineEdit()
         bf.addRow(tr("Name"), self.name)
         self.match = QLineEdit()
@@ -419,31 +592,40 @@ class AppsTab(QWidget):
         bf.addRow(tr("Command prefix"), self.prefix)
         self.env = QPlainTextEdit()
         self.env.setPlaceholderText("KEY=value")
-        self.env.setMaximumHeight(90)
+        self.env.setMaximumHeight(64)
         bf.addRow(tr("Environment"), self.env)
         rl.addWidget(basic)
 
-        detect = QGroupBox(tr("Import from installed games"))
+        detect = group_box(tr("Import from installed games"))
         df = QFormLayout(detect)
+        df.setContentsMargins(12, 10, 12, 8)
+        df.setSpacing(5)
         self.game_combo = QComboBox()
         df.addRow(tr("Detected game"), self.game_combo)
         imp = QPushButton(tr("Import selected game"))
+        imp.setMaximumWidth(320)
         imp.clicked.connect(self.import_game)
         df.addRow(imp)
         rl.addWidget(detect)
+        rl.addStretch(1)
+
+        self.scroll.setWidget(holder)
+        right.addWidget(self.scroll, 1)
 
         btns = QHBoxLayout()
         save = QPushButton(tr("Save"))
+        save.setDefault(True)
         save.clicked.connect(self.save)
         run = QPushButton(tr("Launch"))
         run.clicked.connect(self.launch)
         btns.addWidget(save)
         btns.addWidget(run)
-        rl.addLayout(btns)
-        rl.addStretch(1)
-        right.setWidget(holder)
-        root.addWidget(right, 3)
+        btns.addStretch(1)
+        btns.addWidget(hint_label(tr("Profiles are saved with the Save button.")))
+        right.addLayout(btns)
 
+        body.addLayout(right, 3)
+        page.addLayout(body, 1)
         self.reload()
 
     def reload(self):
@@ -478,7 +660,7 @@ class AppsTab(QWidget):
         self.backend_combo.addItem("")
         for backend in self.app.fps_manager.backends():
             status = backend.available()
-            label = backend.label if status.available else f"{backend.label} (unavailable)"
+            label = backend.label if status.available else f"{backend.label} ({tr('unavailable')})"
             self.backend_combo.addItem(label, backend.name)
         if cur_be:
             self.backend_combo.setCurrentText(cur_be)
@@ -645,23 +827,50 @@ class SettingsTab(QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        root = QVBoxLayout(self)
 
-        backend = QGroupBox(tr("Global FPS backend"))
+        page = QVBoxLayout(self)
+        page.setContentsMargins(18, 16, 18, 12)
+        page.setSpacing(12)
+        page.addWidget(
+            page_header(
+                tr("Settings"),
+                tr("Global FPS backend, behavior and updates."),
+            )
+        )
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        holder = QWidget()
+        outer = QHBoxLayout(holder)
+        outer.setContentsMargins(0, 0, 0, 0)
+        content = QWidget()
+        content.setMinimumWidth(680)
+        content.setMaximumWidth(840)
+        root = QVBoxLayout(content)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(10)
+
+        backend = group_box(tr("Global FPS backend"))
         bf = QFormLayout(backend)
+        bf.setContentsMargins(12, 14, 12, 10)
+        bf.setSpacing(7)
         self.backend_combo = QComboBox()
         bf.addRow(tr("Backend"), self.backend_combo)
         self.backend_desc = QLabel("")
         self.backend_desc.setWordWrap(True)
         bf.addRow(self.backend_desc)
         self.download_pm = QPushButton(tr("Download PresentMon (Windows)..."))
+        self.download_pm.setMaximumWidth(320)
         self.download_pm.clicked.connect(self.download_presentmon)
         bf.addRow(self.download_pm)
         self._pm_worker = None
         root.addWidget(backend)
 
-        general = QGroupBox(tr("General"))
+        general = group_box(tr("General"))
         gf = QFormLayout(general)
+        gf.setContentsMargins(12, 14, 12, 10)
+        gf.setSpacing(7)
         self.language_combo = QComboBox()
         for code in LANGUAGES:
             self.language_combo.addItem(LANGUAGES[code], code)
@@ -670,24 +879,45 @@ class SettingsTab(QWidget):
         gf.addRow(self.start_overlay)
         self.auto_switch = QCheckBox(tr("Auto-switch overlay by running process"))
         gf.addRow(self.auto_switch)
-        self.autostart = QCheckBox(tr("Launch gamohud at login"))
-        gf.addRow(self.autostart)
-        self.check_updates = QPushButton(tr("Check for updates"))
-        self.check_updates.clicked.connect(self.run_update_check)
-        gf.addRow(self.check_updates)
-        self._update_worker = None
-        self.check_updates_start = QCheckBox(tr("Check for updates on startup"))
-        gf.addRow(self.check_updates_start)
         self.active_combo = QComboBox()
         gf.addRow(tr("Default overlay profile"), self.active_combo)
+        self.autostart = QCheckBox(tr("Launch gamohud at login"))
+        gf.addRow(self.autostart)
         root.addWidget(general)
 
-        save = QPushButton(tr("Save"))
-        save.clicked.connect(self.apply)
-        root.addWidget(save)
+        updates = group_box(tr("Updates"))
+        uf = QFormLayout(updates)
+        uf.setContentsMargins(12, 14, 12, 10)
+        uf.setSpacing(7)
+        self.check_updates = QPushButton(tr("Check for updates"))
+        self.check_updates.setMaximumWidth(260)
+        self.check_updates.clicked.connect(self.run_update_check)
+        uf.addRow(self.check_updates)
+        self._update_worker = None
+        self.check_updates_start = QCheckBox(tr("Check for updates on startup"))
+        uf.addRow(self.check_updates_start)
+        root.addWidget(updates)
         root.addStretch(1)
+
+        outer.addWidget(content, 0)
+        outer.addStretch(1)
+        scroll.setWidget(holder)
+        page.addWidget(scroll, 1)
+
+        bar = QHBoxLayout()
+        save = QPushButton(tr("Save"))
+        save.setDefault(True)
+        save.clicked.connect(self.apply)
+        bar.addWidget(save)
+        saved_hint = hint_label(tr("Settings are saved with the Save button."))
+        saved_hint.setWordWrap(False)
+        bar.addWidget(saved_hint)
+        bar.addStretch(1)
+        page.addLayout(bar)
+
         self.reload()
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        self.backend_combo.currentIndexChanged.connect(self._sync_desc)
 
     def _on_language_changed(self, _index):
         code = self.language_combo.currentData()
@@ -702,12 +932,11 @@ class SettingsTab(QWidget):
         self.backend_combo.clear()
         for backend in self.app.fps_manager.backends():
             status = backend.available()
-            label = backend.label if status.available else f"{backend.label} — {status.reason}"
+            label = backend.label if status.available else f"{backend.label} ({tr('unavailable')})"
             self.backend_combo.addItem(label, backend.name)
         idx = self.backend_combo.findData(self.app.store.global_fps_backend)
         if idx >= 0:
             self.backend_combo.setCurrentIndex(idx)
-        self.backend_combo.currentIndexChanged.connect(self._sync_desc)
         self._sync_desc()
         self.start_overlay.setChecked(self.app.start_overlay_enabled)
         self.auto_switch.setChecked(self.app.auto_switch_enabled)
@@ -730,9 +959,12 @@ class SettingsTab(QWidget):
         name = self.backend_combo.currentData()
         backend = next((b for b in self.app.fps_manager.backends() if b.name == name), None)
         status = backend.available() if backend else None
-        text = backend.description if backend else ""
+        text = tr(backend.description) if backend else ""
         if status and not status.available:
-            text += "  (" + tr("Unavailable: {reason}").format(reason=status.reason) + ")"
+            text += "  (" + tr("Unavailable: {reason}").format(reason=tr(status.reason)) + ")"
+            self.backend_desc.setStyleSheet("color: #e5a50a;")
+        else:
+            self.backend_desc.setStyleSheet("")
         self.backend_desc.setText(text)
 
     def download_presentmon(self):
@@ -856,9 +1088,11 @@ class MainWindow(QMainWindow):
         self.overlay_locked = self.store.overlay_locked
         self.keep_above = KeepAbove()
 
+        apply_app_style()
         set_language(self.store.language)
         self.setWindowTitle("Gamohud")
         self.resize(1040, 700)
+        self.setMinimumSize(900, 600)
 
         self.overlay = None
         self._overlay_profile_name = None
@@ -881,6 +1115,7 @@ class MainWindow(QMainWindow):
 
     def _build_tabs(self):
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
         self.dashboard = DashboardTab(self)
         self.overlay_tab = OverlayTab(self)
         self.apps_tab = AppsTab(self)
@@ -893,7 +1128,10 @@ class MainWindow(QMainWindow):
 
     def rebuild_ui(self):
         old = self.tabs
+        index = old.currentIndex()
         self._build_tabs()
+        if 0 <= index < self.tabs.count():
+            self.tabs.setCurrentIndex(index)
         old.deleteLater()
 
     def current_overlay_name(self):

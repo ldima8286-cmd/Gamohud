@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.i18n import system_language
 from src.platform_utils import config_dir
 
 from .model import (
@@ -29,7 +30,7 @@ class ProfileStore:
         self.app_profiles: list[AppProfile] = []
         self.active_overlay: str = "default"
         self.global_fps_backend: str = "vulkan_layer"
-        self.language: str = "en"
+        self.language: str = system_language()
         self.overlay_locked: bool = True
         self.check_updates_on_start: bool = True
         self.load()
@@ -52,7 +53,7 @@ class ProfileStore:
         ]
         self.active_overlay = data.get("active_overlay", self.overlay_profiles[0].name)
         self.global_fps_backend = data.get("global_fps_backend", "vulkan_layer")
-        self.language = data.get("language", "en")
+        self.language = data.get("language", self.language)
         self.overlay_locked = bool(data.get("overlay_locked", True))
         self.check_updates_on_start = bool(data.get("check_updates_on_start", True))
         if not self.app_profiles:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import urllib.request
 
-REPO = "ldima8286-cmd/mangohud-preset-manager-tui"
+REPO = "ldima8286-cmd/Gamohud"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 TIMEOUT = 6.0
