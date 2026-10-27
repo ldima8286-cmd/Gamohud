@@ -150,6 +150,38 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Бэкенд FPS по умолчанию, поведение и обновления."
         ),
         "Backend": "Бэкенд",
+        "MangoHud FPS log": "Лог FPS MangoHud",
+        "Enable MangoHud FPS logging": "Включить логирование FPS в MangoHud",
+        "Adds output_folder, autostart_log and log_interval to MangoHud.conf.": (
+            "Добавляет output_folder, autostart_log и log_interval в MangoHud.conf."
+        ),
+        "Folder for MangoHud CSV logs": "Папка для CSV-логов MangoHud",
+        "Browse...": "Обзор...",
+        "Log folder": "Папка логов",
+        "Hide MangoHud's own HUD after launch": (
+            "Скрывать собственный HUD MangoHud после запуска"
+        ),
+        "MangoHud writes one CSV per game into this folder. Enable logging here, then launch the game with MangoHud (for example mangohud %command% in Steam).": (
+            "MangoHud пишет один CSV на игру в эту папку. Включите логирование "
+            "здесь, затем запускайте игру с MangoHud (например, "
+            "mangohud %command% в Steam)."
+        ),
+        "MangoHud log folder": "Папка логов MangoHud",
+        "MangoHud logging is disabled below.": (
+            "Логирование MangoHud выключено ниже."
+        ),
+        "Could not update MangoHud.conf: {error}": (
+            "Не удалось обновить MangoHud.conf: {error}"
+        ),
+        "FPS backend switched to {name}": "Бэкенд FPS переключён на {name}",
+        "Reads FPS from MangoHud's CSV log (Vulkan and OpenGL). Enable MangoHud logging in Settings and launch the game with MangoHud.": (
+            "Читает FPS из CSV-лога MangoHud (Vulkan и OpenGL). Включите "
+            "логирование MangoHud в настройках и запускайте игру с MangoHud."
+        ),
+        "MangoHud log is Linux-only": "Лог MangoHud доступен только в Linux",
+        "MangoHud is not installed. Install MangoHud or use another backend.": (
+            "MangoHud не установлен. Установите MangoHud или выберите другой бэкенд."
+        ),
         # backend descriptions / availability reasons
         "Our own implicit Vulkan layer. Real FPS in Vulkan/DXVK/VKD3D apps.": (
             "Собственный неявный Vulkan-слой. Настоящий FPS в приложениях Vulkan/DXVK/VKD3D."
@@ -203,6 +235,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         ),
         "Settings are saved with the Save button.": "Настройки сохраняются кнопкой «Сохранить».",
         "Unavailable: {reason}": "Недоступно: {reason}",
+        "PresentMon is only needed on Windows.\nOn Linux use the MangoHud log, Vulkan layer or gamescope backends.": (
+            "PresentMon нужен только в Windows.\n"
+            "В Linux используйте лог MangoHud, Vulkan-слой или gamescope."
+        ),
         "PresentMon is only needed on Windows.\nOn Linux use the Vulkan layer, gamescope or mesa_gallium backends.": (
             "PresentMon нужен только в Windows.\n"
             "В Linux используйте Vulkan-слой, gamescope или бэкенд mesa_gallium."

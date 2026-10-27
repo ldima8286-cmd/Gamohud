@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -67,8 +69,70 @@ def split_args(text: str) -> list[str]:
 
 
 def which(name: str) -> str | None:
-    import shutil
     return shutil.which(name)
+
+
+def in_flatpak() -> bool:
+    """True when gamohud itself runs inside a Flatpak sandbox."""
+    return bool(os.environ.get("FLATPAK_ID") or os.path.exists("/.flatpak-info"))
+
+
+def host_command(args: list[str]) -> list[str]:
+    """Prefix *args* so they run on the host when inside a Flatpak.
+
+    Tools such as MangoHud live on the host, outside the sandbox.  Outside a
+    Flatpak this is a no-op, so callers can use it unconditionally.
+    """
+    if IS_LINUX and in_flatpak() and shutil.which("flatpak-spawn"):
+        return ["flatpak-spawn", "--host", *args]
+    return list(args)
+
+
+_HOST_WHICH_CACHE: dict[str, str | None] = {}
+
+
+def host_which(name: str) -> str | None:
+    """Locate an executable on the host, even when running in a sandbox."""
+    if name in _HOST_WHICH_CACHE:
+        return _HOST_WHICH_CACHE[name]
+    found = shutil.which(name)
+    if found is None and IS_LINUX and in_flatpak() and shutil.which("flatpak-spawn"):
+        try:
+            r = subprocess.run(
+                ["flatpak-spawn", "--host", "sh", "-c", f"command -v {shlex.quote(name)}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                found = r.stdout.strip().splitlines()[0]
+        except Exception:
+            found = None
+    _HOST_WHICH_CACHE[name] = found
+    return found
+
+
+def host_run(args: list[str], timeout: float = 5.0, **kwargs) -> subprocess.CompletedProcess:
+    """Run a host command with a short timeout (used for MangoHud control)."""
+    return subprocess.run(
+        host_command(args),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        **kwargs,
+    )
+
+
+def default_mangohud_log_dir() -> Path:
+    """Host-visible folder for MangoHud CSV logs.
+
+    ``XDG_DATA_HOME`` points inside the Flatpak private data directory, which
+    host games cannot write to.  ``$HOME/.local/share`` is shared and also the
+    conventional location outside Flatpak.
+    """
+    if IS_WINDOWS:
+        return config_dir("gamohud") / "mangohud"
+    return Path.home() / ".local" / "share" / "gamohud" / "mangohud"
 
 
 def open_uri_command(uri: str) -> list[str]:

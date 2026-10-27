@@ -1,13 +1,15 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from src import games as games_mod
 from src.fps import FPSManager
+from src.fps.backends.mangohud import set_mangohud_logging
 from src.i18n import LANGUAGES, get_language, set_language, tr
 from src.keep_above import KeepAbove
 from src.launcher import launch as launch_profile
@@ -45,6 +48,7 @@ from src.metrics import (
 )
 from src.overlay import OverlayWindow, overlay_position
 from src.overlay_bridge import GeometryReceiver
+from src.overlay_host import HostOverlay, host_overlay_available
 from src.platform_utils import IS_WINDOWS, open_uri_command, split_args
 from src.profiles import (
     POSITIONS,
@@ -166,12 +170,15 @@ class OverlayTab(QWidget):
         body.setSpacing(14)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(190)
+        left_panel.setFixedWidth(210)
         left = QVBoxLayout(left_panel)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(8)
         left.addWidget(section_label(tr("Profiles")))
         self.list = QListWidget()
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.list.setSpacing(2)
         self.list.currentRowChanged.connect(self.on_select)
         left.addWidget(self.list, 1)
         for text, slot in (
@@ -195,15 +202,17 @@ class OverlayTab(QWidget):
         rl = QVBoxLayout(holder)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(10)
-        columns = QHBoxLayout()
-        columns.setSpacing(10)
+        self._columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._columns.setSpacing(10)
         left_col = QVBoxLayout()
         left_col.setSpacing(10)
         right_col = QVBoxLayout()
         right_col.setSpacing(10)
-        columns.addLayout(left_col, 5)
-        columns.addLayout(right_col, 4)
-        rl.addLayout(columns)
+        self._left_col = left_col
+        self._right_col = right_col
+        self._columns.addLayout(left_col, 5)
+        self._columns.addLayout(right_col, 4)
+        rl.addLayout(self._columns)
 
         appearance = group_box(tr("Appearance"))
         af = QGridLayout(appearance)
@@ -365,6 +374,34 @@ class OverlayTab(QWidget):
         body.addLayout(right, 3)
         page.addLayout(body, 1)
         self.reload()
+        QTimer.singleShot(0, self._update_columns)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_columns()
+
+    def _update_columns(self):
+        """Stack the two form columns on narrow windows instead of clipping.
+
+        The Appearance/Colors group and Metrics/Presets group have a fairly
+        large combined minimum width.  Keeping them side by side at the
+        window's 900 px minimum produced a horizontal scrollbar and cut off
+        labels and panels.  Reflow to one column below this threshold.
+        """
+        columns = getattr(self, "_columns", None)
+        if columns is None:
+            return
+        stacked = self.width() < 1120
+        direction = (
+            QBoxLayout.Direction.TopToBottom
+            if stacked
+            else QBoxLayout.Direction.LeftToRight
+        )
+        if columns.direction() != direction:
+            columns.setDirection(direction)
+            columns.setStretch(0, 0 if stacked else 5)
+            columns.setStretch(1, 0 if stacked else 4)
+            self.scroll.widget().adjustSize()
 
     def reload(self):
         keep = self.current.name if self.current else self.app.store.active_overlay
@@ -374,6 +411,7 @@ class OverlayTab(QWidget):
             tag = " (active)" if p.name == self.app.store.active_overlay else ""
             it = QListWidgetItem(f"{p.name}{tr(tag)}")
             it.setData(Qt.UserRole, p.name)
+            it.setSizeHint(QSize(0, 36))
             font = it.font()
             font.setBold(p.name == self.app.store.active_overlay)
             it.setFont(font)
@@ -385,6 +423,7 @@ class OverlayTab(QWidget):
                 0,
             )
             self.list.setCurrentRow(row)
+            self.list.scrollToTop()
         self.sync_lock_button()
 
     def on_select(self, row):
@@ -537,12 +576,15 @@ class AppsTab(QWidget):
         body.setSpacing(14)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(190)
+        left_panel.setFixedWidth(210)
         left = QVBoxLayout(left_panel)
         left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(8)
         left.addWidget(section_label(tr("Profiles")))
         self.list = QListWidget()
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.list.setSpacing(2)
         self.list.currentRowChanged.connect(self.on_select)
         left.addWidget(self.list, 1)
         buttons = QGridLayout()
@@ -644,6 +686,7 @@ class AppsTab(QWidget):
         for p in self.app.store.app_profiles:
             it = QListWidgetItem(p.name or tr("(unnamed)"))
             it.setData(Qt.UserRole, p.name)
+            it.setSizeHint(QSize(0, 36))
             self.list.addItem(it)
         self.list.blockSignals(False)
         self._reload_combos()
@@ -654,6 +697,7 @@ class AppsTab(QWidget):
                 0,
             )
             self.list.setCurrentRow(row)
+            self.list.scrollToTop()
 
     def _reload_combos(self):
         cur_ov = self.overlay_combo.currentText()
@@ -876,6 +920,38 @@ class SettingsTab(QWidget):
         self._pm_worker = None
         root.addWidget(backend)
 
+        mangohud = group_box(tr("MangoHud FPS log"))
+        mf = QFormLayout(mangohud)
+        mf.setContentsMargins(12, 14, 12, 10)
+        mf.setSpacing(7)
+        self.mh_logging = QCheckBox(tr("Enable MangoHud FPS logging"))
+        self.mh_logging.setToolTip(
+            tr("Adds output_folder, autostart_log and log_interval to MangoHud.conf.")
+        )
+        mf.addRow(self.mh_logging)
+        self.mh_log_dir = QLineEdit()
+        self.mh_log_dir.setPlaceholderText(tr("Folder for MangoHud CSV logs"))
+        mh_browse = QPushButton(tr("Browse..."))
+        mh_browse.setMaximumWidth(120)
+        mh_browse.clicked.connect(self.browse_mangohud_log)
+        mh_row = QHBoxLayout()
+        mh_row.setSpacing(8)
+        mh_row.addWidget(self.mh_log_dir, 1)
+        mh_row.addWidget(mh_browse)
+        mf.addRow(tr("Log folder"), mh_row)
+        self.mh_hide_hud = QCheckBox(tr("Hide MangoHud's own HUD after launch"))
+        mf.addRow(self.mh_hide_hud)
+        mf.addRow(
+            hint_label(
+                tr(
+                    "MangoHud writes one CSV per game into this folder. Enable "
+                    "logging here, then launch the game with MangoHud (for "
+                    "example mangohud %command% in Steam)."
+                )
+            )
+        )
+        root.addWidget(mangohud)
+
         general = group_box(tr("General"))
         gf = QFormLayout(general)
         gf.setContentsMargins(12, 14, 12, 10)
@@ -934,6 +1010,7 @@ class SettingsTab(QWidget):
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         self.backend_combo.currentIndexChanged.connect(self._sync_desc)
+        self.mh_logging.toggled.connect(lambda _checked: self._sync_desc())
 
     def _on_language_changed(self, _index):
         code = self.language_combo.currentData()
@@ -949,6 +1026,15 @@ class SettingsTab(QWidget):
         if mode:
             self.app.set_theme(mode)
 
+    def browse_mangohud_log(self):
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            tr("MangoHud log folder"),
+            self.mh_log_dir.text().strip() or str(self.app.store.mangohud_log_dir),
+        )
+        if folder:
+            self.mh_log_dir.setText(folder)
+
     def reload(self):
         self.backend_combo.clear()
         for backend in self.app.fps_manager.backends():
@@ -958,6 +1044,9 @@ class SettingsTab(QWidget):
         idx = self.backend_combo.findData(self.app.store.global_fps_backend)
         if idx >= 0:
             self.backend_combo.setCurrentIndex(idx)
+        self.mh_logging.setChecked(bool(self.app.store.mangohud_logging))
+        self.mh_log_dir.setText(str(self.app.store.mangohud_log_dir))
+        self.mh_hide_hud.setChecked(bool(self.app.store.hide_mangohud_hud))
         self._sync_desc()
         self.start_overlay.setChecked(self.app.start_overlay_enabled)
         self.auto_switch.setChecked(self.app.auto_switch_enabled)
@@ -987,6 +1076,9 @@ class SettingsTab(QWidget):
         if status and not status.available:
             text += "  (" + tr("Unavailable: {reason}").format(reason=tr(status.reason)) + ")"
             self.backend_desc.setStyleSheet(f"color: {warning_color()};")
+        elif name == "mangohud_log" and not self.mh_logging.isChecked():
+            text += "  (" + tr("MangoHud logging is disabled below.") + ")"
+            self.backend_desc.setStyleSheet(f"color: {warning_color()};")
         else:
             self.backend_desc.setStyleSheet("")
         self.backend_desc.setText(text)
@@ -995,7 +1087,7 @@ class SettingsTab(QWidget):
         if not IS_WINDOWS:
             QMessageBox.information(
                 self, "PresentMon",
-                tr("PresentMon is only needed on Windows.\nOn Linux use the Vulkan layer, gamescope or mesa_gallium backends."),
+                tr("PresentMon is only needed on Windows.\nOn Linux use the MangoHud log, Vulkan layer or gamescope backends."),
             )
             return
         self.download_pm.setEnabled(False)
@@ -1024,8 +1116,22 @@ class SettingsTab(QWidget):
         self.app.start_overlay_enabled = self.start_overlay.isChecked()
         self.app.auto_switch_enabled = self.auto_switch.isChecked()
         self.app.store.check_updates_on_start = self.check_updates_start.isChecked()
+        log_dir = self.mh_log_dir.text().strip() or str(self.app.store.mangohud_log_dir)
+        self.app.store.mangohud_log_dir = log_dir
+        self.app.store.mangohud_logging = self.mh_logging.isChecked()
+        self.app.store.hide_mangohud_hud = self.mh_hide_hud.isChecked()
+        try:
+            set_mangohud_logging(self.app.store.mangohud_logging, log_dir)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                tr("MangoHud FPS log"),
+                tr("Could not update MangoHud.conf: {error}").format(error=exc),
+            )
         self.app.store.save()
         self._sync_autostart()
+        self.app.fps_manager.set_mangohud_log_dir(log_dir)
+        self.app.fps_manager.set_mangohud_hide_hud(self.app.store.hide_mangohud_hud)
         self.app.fps_manager.set_backend(self.app.store.global_fps_backend)
         self.app.refresh_overlay()
         self.app.status.showMessage(tr("Settings saved"), 4000)
@@ -1107,6 +1213,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store = ProfileStore()
         self.fps_manager = FPSManager(self.store.global_fps_backend)
+        self.fps_manager.set_mangohud_log_dir(self.store.mangohud_log_dir)
+        self.fps_manager.set_mangohud_hide_hud(self.store.hide_mangohud_hud)
+        self._fps_fallback = self._ensure_fps_backend()
         self.start_overlay_enabled = True
         self.auto_switch_enabled = True
         self.overlay_locked = self.store.overlay_locked
@@ -1130,6 +1239,11 @@ class MainWindow(QMainWindow):
 
         self.overlay = None
         self._overlay_profile_name = None
+        app = QApplication.instance()
+        self._host_overlay_python = host_overlay_available(
+            app.platformName() if app is not None else ""
+        )
+        self._host_overlay = bool(self._host_overlay_python)
 
         self._build_tabs()
 
@@ -1146,8 +1260,37 @@ class MainWindow(QMainWindow):
         self._theme_shortcut = QShortcut(QKeySequence("Ctrl+Shift+D"), self)
         self._theme_shortcut.activated.connect(self.toggle_theme)
         self.status = self.statusBar()
-        self.status.showMessage(tr("Ready"), 3000)
+        if self._fps_fallback:
+            self.status.showMessage(
+                tr("FPS backend switched to {name}").format(
+                    name=self.fps_manager.backend.label
+                ),
+                6000,
+            )
+        else:
+            self.status.showMessage(tr("Ready"), 3000)
         self._enable_keep_above()
+
+    def _ensure_fps_backend(self) -> str | None:
+        """Use a working backend when the saved one is unavailable.
+
+        The config may still point at the Vulkan layer from an old install.
+        Silently showing ``--`` is worse than switching to an installed
+        measurement source; the selected backend is persisted so Settings
+        reflects what is actually used.
+        """
+        selected = self.store.global_fps_backend
+        if not selected or selected == "null":
+            return None
+        if self.fps_manager.available(selected).available:
+            return None
+        fallback = self.fps_manager.fallback_backend()
+        if fallback and fallback != selected:
+            self.fps_manager.set_backend(fallback)
+            self.store.global_fps_backend = fallback
+            self.store.save()
+            return fallback
+        return None
 
     def _build_tabs(self):
         self.tabs = QTabWidget()
@@ -1200,11 +1343,24 @@ class MainWindow(QMainWindow):
     def _overlay_data(self):
         return collect_all(self.fps_manager.read())
 
+    def _create_overlay(self, profile):
+        if self._host_overlay:
+            overlay = HostOverlay(self._overlay_data, self._host_overlay_python)
+        else:
+            overlay = OverlayWindow(profile, self._overlay_data)
+        self.overlay = overlay
+        self._wire_overlay(overlay)
+
     def start_overlay(self):
         profile = self.store.active_overlay_profile()
         if self.overlay is None:
-            self.overlay = OverlayWindow(profile, self._overlay_data)
-            self._wire_overlay(self.overlay)
+            self._create_overlay(profile)
+        if self._host_overlay:
+            # The helper owns the layer-shell surface and its position.
+            self.overlay.start(profile)
+            self.overlay.set_locked(self.overlay_locked)
+            self._overlay_profile_name = profile.name
+            return
         self.keep_above.set_window_title(self.overlay.windowTitle())
         self.overlay.external_position = self._external_overlay_position
         self.overlay.set_profile(profile)
@@ -1217,6 +1373,8 @@ class MainWindow(QMainWindow):
         self._overlay_restore_timer.start()
 
     def _restore_overlay_position(self):
+        if self._host_overlay:
+            return
         if self.overlay is not None and self.overlay.isVisible():
             self.keep_above.reapply()
 
@@ -1224,6 +1382,8 @@ class MainWindow(QMainWindow):
         overlay.on_position_changed = self._overlay_moved
 
     def _enable_keep_above(self):
+        if self._host_overlay:
+            return
         if not self.keep_above.available:
             return
         if self.overlay is not None:
@@ -1312,6 +1472,10 @@ class MainWindow(QMainWindow):
             self.overlay.hide()
             self._overlay_profile_name = None
 
+    def stop_host_overlay(self):
+        if isinstance(self.overlay, HostOverlay):
+            self.overlay.stop()
+
     def refresh_overlay(self):
         if self.overlay is None:
             return
@@ -1320,13 +1484,17 @@ class MainWindow(QMainWindow):
         before_geom = (before.position, before.x, before.y, before.margin)
         self.overlay.set_profile(profile)
         after_geom = (profile.position, profile.x, profile.y, profile.margin)
-        if after_geom != before_geom:
+        if not self._host_overlay and after_geom != before_geom:
             self.keep_above.reapply()
 
     def preview_overlay(self, profile):
         if self.overlay is None:
-            self.overlay = OverlayWindow(profile, self._overlay_data)
-            self._wire_overlay(self.overlay)
+            self._create_overlay(profile)
+        if self._host_overlay:
+            self.overlay.start(profile)
+            self.overlay.set_locked(self.overlay_locked)
+            self._overlay_profile_name = profile.name
+            return
         self.keep_above.set_window_title(self.overlay.windowTitle())
         self.overlay.external_position = self._external_overlay_position
         self.overlay.set_profile(profile)
@@ -1356,7 +1524,7 @@ class MainWindow(QMainWindow):
                 self.overlay.set_profile(profile)
                 after_geom = (profile.position, profile.x, profile.y, profile.margin)
                 self._overlay_profile_name = profile.name
-                if after_geom != before_geom:
+                if not self._host_overlay and after_geom != before_geom:
                     self.keep_above.reapply()
 
     def _app_icon(self):
@@ -1430,6 +1598,7 @@ def main():
     except Exception:
         pass
     app.aboutToQuit.connect(win.fps_manager.stop)
+    app.aboutToQuit.connect(win.stop_host_overlay)
     win.show()
     if win.overlay is not None:
         QTimer.singleShot(0, win.overlay.raise_)

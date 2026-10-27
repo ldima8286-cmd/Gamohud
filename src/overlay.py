@@ -368,6 +368,17 @@ class OverlayWindow(QWidget):
         self.container.setFont(f)
         self.spark.setVisible(bool(p.graph))
         self.spark.set_color(p.accent_color)
+        self._fit_size()
+
+    def _fit_size(self):
+        """Resize to the real label/value width immediately.
+
+        Calling only ``adjustSize()`` right after changing label text uses the
+        previous layout size hint (the new hint is cached until the next layout
+        pass), which clips labels such as ``0.1% LOW`` for one refresh cycle.
+        Sizing the container first invalidates that cache.
+        """
+        self.container.adjustSize()
         self.adjustSize()
 
     # -- data -------------------------------------------------------------
@@ -387,7 +398,7 @@ class OverlayWindow(QWidget):
             fps = data.get("fps")
             if fps is not None:
                 self.spark.push(fps)
-        self.adjustSize()
+        self._fit_size()
         if self._drag_offset is None and not self._system_moving:
             self._reposition()
         self.raise_()
@@ -399,7 +410,7 @@ class OverlayWindow(QWidget):
         if screen is None:
             return
         geo = screen.availableGeometry()
-        self.adjustSize()
+        self._fit_size()
         if self.profile.position == "custom" and not force:
             # Wayland ignores move(): the compositor owns the position, so once
             # the user has dragged the overlay we must not fight it.

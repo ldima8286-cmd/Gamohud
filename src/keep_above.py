@@ -45,6 +45,8 @@ function apply(w) {
     try {
         if (!w || !isOverlay(w)) return;
         try { w.keepAbove = true; } catch (e) {}
+        try { w.keepBelow = false; } catch (e) {}
+        try { w.onAllDesktops = true; } catch (e) {}
         try { w.skipTaskbar = true; } catch (e) {}
         try { w.skipSwitcher = true; } catch (e) {}
 %REPORT_HOOK%
@@ -68,16 +70,26 @@ function applyAll() {
             var list = workspace.windowList();
             list.forEach(watch);
             list.forEach(apply);
-            workspace.windowAdded.connect(function (w) { watch(w); apply(w); });
         } else if (workspace.clientList) {     // older KWin 5
             var clients = workspace.clientList();
             clients.forEach(watch);
             clients.forEach(apply);
-            workspace.clientAdded.connect(function (w) { watch(w); apply(w); });
         }
     } catch (e) {}
 }
 applyAll();
+// Connect once per script load.  applyAll() itself must not connect, or every
+// activation would add another signal handler and call itself exponentially.
+try {
+    if (typeof workspace !== "undefined") {
+        if (workspace.windowList) {
+            workspace.windowAdded.connect(function (w) { watch(w); apply(w); });
+            workspace.windowActivated.connect(function () { applyAll(); });
+        } else if (workspace.clientList) {
+            workspace.clientAdded.connect(function (w) { watch(w); apply(w); });
+        }
+    }
+} catch (e) {}
 '''
 
 _RESTORE_BLOCK = """        try {

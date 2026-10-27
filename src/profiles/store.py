@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.i18n import system_language
-from src.platform_utils import config_dir
+from src.platform_utils import config_dir, default_mangohud_log_dir
 
 from .model import (
     AppProfile,
@@ -30,6 +30,9 @@ class ProfileStore:
         self.app_profiles: list[AppProfile] = []
         self.active_overlay: str = "default"
         self.global_fps_backend: str = "vulkan_layer"
+        self.mangohud_log_dir: str = str(default_mangohud_log_dir())
+        self.mangohud_logging: bool = False
+        self.hide_mangohud_hud: bool = True
         self.language: str = system_language()
         self.theme: str = "dark"
         self.overlay_locked: bool = True
@@ -54,6 +57,11 @@ class ProfileStore:
         ]
         self.active_overlay = data.get("active_overlay", self.overlay_profiles[0].name)
         self.global_fps_backend = data.get("global_fps_backend", "vulkan_layer")
+        self.mangohud_log_dir = str(
+            data.get("mangohud_log_dir") or default_mangohud_log_dir()
+        )
+        self.mangohud_logging = bool(data.get("mangohud_logging", False))
+        self.hide_mangohud_hud = bool(data.get("hide_mangohud_hud", True))
         self.language = data.get("language", self.language)
         theme = data.get("theme", "dark")
         self.theme = theme if theme in ("dark", "light", "system") else "dark"
@@ -67,6 +75,9 @@ class ProfileStore:
         data = {
             "active_overlay": self.active_overlay,
             "global_fps_backend": self.global_fps_backend,
+            "mangohud_log_dir": self.mangohud_log_dir,
+            "mangohud_logging": self.mangohud_logging,
+            "hide_mangohud_hud": self.hide_mangohud_hud,
             "language": self.language,
             "theme": self.theme,
             "overlay_locked": self.overlay_locked,

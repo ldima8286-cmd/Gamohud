@@ -76,3 +76,33 @@ class FPSManager:
 
     def is_env_only(self) -> bool:
         return self._backend.env_only
+
+    def set_mangohud_log_dir(self, path: str | None) -> None:
+        backend = self._backends.get("mangohud_log")
+        if backend is not None and hasattr(backend, "set_log_dir"):
+            backend.set_log_dir(path)
+
+    def set_mangohud_hide_hud(self, hide: bool) -> None:
+        backend = self._backends.get("mangohud_log")
+        if backend is not None and hasattr(backend, "set_hide_hud"):
+            backend.set_hide_hud(hide)
+
+    def fallback_backend(self, preferred: list[str] | None = None) -> str | None:
+        """Return the first usable measurement backend, or ``None``.
+
+        ``mesa_gallium`` is intentionally skipped: it draws Mesa's own HUD but
+        cannot feed numbers back into our overlay.
+        """
+        order = preferred or [
+            "mangohud_log",
+            "vulkan_layer",
+            "presentmon",
+            "gamescope",
+        ]
+        for name in order:
+            backend = self._backends.get(name)
+            if backend is None or backend.env_only:
+                continue
+            if backend.available().available:
+                return name
+        return None

@@ -447,6 +447,7 @@ _QSS = Template(
     QListWidget::item {
         color: $text;
         padding: 7px 8px;
+        min-height: 22px;
         border-radius: 6px;
     }
     QListWidget::item:hover {

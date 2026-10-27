@@ -1,6 +1,6 @@
 # gamohud
 
-Автономное десктопное приложение (Qt GUI) с оверлеем производительности поверх окон. **MangoHud не требуется** — метрики собираются напрямую из `/proc` и `/sys` (а для NVIDIA — через `nvidia-smi`), профили хранятся в собственном формате, а игровой FPS подключается сменными бэкендами.
+Автономное десктопное приложение (Qt GUI) с оверлеем производительности поверх окон. **MangoHud не обязателен для системных метрик** — они собираются напрямую из `/proc` и `/sys` (а для NVIDIA — через `nvidia-smi`), профили хранятся в собственном формате. Игровой FPS подключается сменными бэкендами: на Linux проще всего читать CSV-лог MangoHud, также есть собственный Vulkan-слой.
 
 ## Быстрый старт
 
@@ -61,10 +61,51 @@ run-gui.bat
 | Бэкенд            | Что делает | Статус |
 |-------------------|------------|--------|
 | `null`            | только системные метрики | всегда доступен |
+| `mangohud_log`    | читает CSV-лог MangoHud (`fps`, `frametime`); работает с Vulkan и OpenGL, в том числе с играми из Steam/Lutris | Linux; нужен установленный MangoHud |
 | `vulkan_layer`    | собственный Vulkan implicit layer (C) считает кадры и пишет FPS в `gamohud-fps.json` | исходники в `layer/`, нужно собрать |
 | `presentmon`      | Intel PresentMon по ETW: DirectX 9/10/11/12, OpenGL и Vulkan | Windows; нужен PresentMon.exe и права администратора |
 | `gamescope`       | запуск внутри gamescope, чтение таймингов | экспериментально |
 | `mesa_gallium`    | `GALLIUM_HUD` для AMD/Intel OpenGL | только переменные окружения |
+
+Если сохранённый бэкенд недоступен (например, Vulkan-слой не собран), Gamohud
+автоматически выбирает первый рабочий в порядке `mangohud_log` →
+`vulkan_layer` → `presentmon` → `gamescope` и сохраняет выбор в настройках.
+
+### MangoHud log на Linux (проще всего)
+
+MangoHud умеет писать CSV с FPS и frametime. Gamohud читает самый свежий файл
+из выбранной папки; сам MangoHud при этом может быть установлен отдельно.
+
+1. Установи MangoHud (в Bazzite/Fedora обычно `rpm-ostree install MangoHud`).
+2. Открой **Settings → MangoHud FPS log**, включи
+   **Enable MangoHud FPS logging** и при необходимости выбери папку логов
+   (по умолчанию `~/.local/share/gamohud/mangohud`). Нажми **Сохранить**.
+3. Запускай игру с MangoHud: в Steam добавь в параметры запуска
+   `mangohud %command%`, либо запусти её через Gamohud
+   (`gamohud-run --backend mangohud_log -- игра`).
+4. При запуске игры через Gamohud он сам скрывает собственный HUD MangoHud
+   после старта (галочка **Hide MangoHud's own HUD after launch**), чтобы не
+   было двух оверлеев. Логирование при этом продолжается.
+
+Gamohud добавляет в `~/.config/MangoHud/MangoHud.conf` управляемый блок с
+`output_folder`, `autostart_log=1`, `log_duration=0` и `log_interval=100`.
+Остальные настройки MangoHud не затрагиваются. Если игра запущена без MangoHud,
+FPS будет `--`: это ограничение любого внешнего логгера.
+
+### Оверлей поверх полноэкранных игр (KDE Wayland)
+
+На KDE Wayland обычное окно с `keepAbove` всё равно оказывается **под активным
+полноэкранным окном**: KWin размещает fullscreen на слое выше. Поэтому Gamohud
+автоматически запускает небольшой helper на системном Python с `layer-shell-qt`
+и создаёт поверхность в слое `overlay` — она остаётся видимой и над fullscreen.
+GUI при этом продолжает работать как обычно, а состояние оверлея передаётся
+helper'у через `~/.local/share/gamohud/runtime/`.
+
+Для этого нужны системный Python 3 с PySide6 и пакет `layer-shell-qt`. Если их
+нет (или запущен X11), Gamohud откатывается на прежний путь через KWin
+`keepAbove`; оверлей продолжит работать, но над активным fullscreen может быть
+не виден. Принудительно отключить layer-shell helper можно переменной
+`GAMOHUD_NO_LAYER_SHELL=1`.
 
 ### PresentMon на Windows (FPS не только в Vulkan-играх)
 
@@ -112,9 +153,9 @@ layer\build_layer.bat
 - Пути конфигурации выбираются по ОС автоматически:
   Windows `%APPDATA%\gamohud`, macOS `~/Library/Application Support/gamohud`,
   Linux `$XDG_CONFIG_HOME/gamohud` (по умолчанию `~/.config/gamohud`).
-- Linux-специфичные FPS-бэкенды (`gamescope`, `mesa_gallium`) недоступны на других
-  ОС; Vulkan implicit layer доступен на всех ОС (нужно собрать); `presentmon`
-  доступен только на Windows.
+- Linux-специфичные FPS-бэкенды (`mangohud_log`, `gamescope`, `mesa_gallium`)
+  недоступны на других ОС; Vulkan implicit layer доступен на всех ОС (нужно
+  собрать); `presentmon` доступен только на Windows.
 - Game Mode (`gamemoderun`) доступен только на Linux.
 
 ## Запуск из исходников
@@ -137,15 +178,15 @@ run-wrapper.bat ...   # CLI-обёртка gamohud-run
 - **Overlay Profiles** — редактор профилей оверлея с предпросмотром.
 - **Applications** — профили приложений, запуск, импорт из установленных игр
   (Steam/Lutris/Bottles/Heroic) и из запущенных процессов.
-- **Settings** — глобальный FPS-бэкенд, профиль оверлея по умолчанию,
-  авто-переключение, запуск оверлея.
+- **Settings** — глобальный FPS-бэкенд, папка и включение логирования MangoHud,
+  профиль оверлея по умолчанию, авто-переключение, запуск оверлея.
 
 ## gamohud-run
 
 ```
 gamohud-run --list
 gamohud-run --profile "Steam game"
-gamohud-run --backend vulkan_layer --env DXVK_HUD=0 -- mygame --fullscreen
+gamohud-run --backend mangohud_log --env DXVK_HUD=0 -- mygame --fullscreen
 ```
 
 Обёртка подставляет окружение выбранного бэкенда, env из профиля, Game Mode и

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .gamescope import GamescopeBackend
+from .mangohud import MangoHudLogBackend
 from .mesa_gallium import MesaGalliumBackend
 from .null import NullBackend
 from .presentmon import PresentMonBackend
@@ -11,6 +12,7 @@ def all_backends():
     return [
         NullBackend(),
         VulkanLayerBackend(),
+        MangoHudLogBackend(),
         PresentMonBackend(),
         GamescopeBackend(),
         MesaGalliumBackend(),
@@ -20,6 +22,7 @@ def all_backends():
 __all__ = [
     "NullBackend",
     "VulkanLayerBackend",
+    "MangoHudLogBackend",
     "PresentMonBackend",
     "GamescopeBackend",
     "MesaGalliumBackend",
